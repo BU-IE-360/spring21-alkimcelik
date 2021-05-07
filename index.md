@@ -10,4 +10,4 @@
 
 ## Homework 2
 
-[Here](files/IE 360 Homework 2 (2).html) is Homework 2. You can access to the codes [here](files/IE 360 Homework 2.r).
+[Here](files/IE_360_Homework_2.html) is Homework 2. You can access to the codes [here](files/IE_360_Homework_2.r).
