@@ -7,3 +7,7 @@
 ## Homework 1
 
 [Here](files/IE_360_Homework_1.html) is Homework 1. 
+
+## Homework 2
+
+[Here](files/IE 360 Homework 2 (2).html) is Homework 2. You can access to the codes [here](files/IE 360 Homework 2.r).
