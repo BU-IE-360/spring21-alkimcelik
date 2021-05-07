@@ -6,4 +6,4 @@
 
 ## Homework 1
 
-[Here](files/IE 360 Homework 1.html) is Homework 1. 
+[Here](files/IE_360_Homework_1.html) is Homework 1. 
