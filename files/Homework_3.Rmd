@@ -1,0 +1,519 @@
+---
+title: "IE 360 Homework 3"
+author: "Alkım Can Çelik"
+date: "29.05.2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+In this homework, we are going to get insights about the properties of electricity consumption, and to build and compare forecasting models. 
+
+Necessary libraries will be imported.
+
+
+```{r, warning=FALSE, message=FALSE}
+library(data.table)
+library(lubridate)
+library(ggplot2)
+library(forecast)
+library(dplyr)
+library(stats)
+library(ggpubr)
+library(urca)
+```
+
+Firstly, data manipulations should be made.
+
+```{r, warning=FALSE, message=FALSE}
+consumption <- fread("GercekZamanliTuketim-01012016-20052021.csv")
+head(consumption)
+```
+
+Column names will be renamed and their types will be checked in order to make data manipulations correct.
+
+```{r, warning=FALSE, message=FALSE}
+colnames(consumption) <- c("Date", "Hour", "Consumption")
+str(consumption)
+```
+
+It can be seen that all the column types are character. Therefore, they need to be converted to a proper one. Also, "Hour" column should be converted as numeric day hours.
+
+```{r, warning=FALSE, message=FALSE}
+consumption[,Date:=as.Date(Date, "%d.%m.%Y")]
+consumption[, Hour := tstrsplit(Hour, ":")[1]]
+consumption[, Hour:=as.numeric(Hour)]
+consumption[,Consumption:=gsub("\\.", "", consumption$Consumption)]
+consumption[,Consumption:=gsub(",", "\\.", consumption$Consumption)]
+consumption[,Consumption:=as.numeric(Consumption)]
+consumption=consumption[order(Date,Hour)]
+consumption[,datetime:=ymd(Date)+dhours(Hour)]
+str(consumption)
+```
+
+Now, the data is ready for time series related analyses and decomposition. 
+
+### Task 1
+
+#### Hourly Decomposition
+
+Firstly, we should plot the data in hourly level.
+
+```{r}
+ggplot(consumption, aes(x=consumption$datetime, y = consumption$Consumption)) +
+  theme_minimal() +
+  geom_line(color='blue', alpha=0.6) + 
+  scale_x_datetime(breaks = '6 months', date_labels = "%b %Y") +
+  theme(axis.text.x = element_text(hjust = 1)) +
+  labs(x = 'Date', 
+       y = 'Consumption (MWh)', 
+       title = "Turkey's Electricity Consumption")
+```
+
+When we look at the plot, trend and hourly seasonality cannot be understood clearly.
+
+Let's decompose the series.
+
+```{r}
+consumption_hourly_ts <- ts(consumption[,"Consumption"], freq = 24)
+
+consumption_hourly_ts <- decompose(consumption_hourly_ts,type="additive")
+
+plot(consumption_hourly_ts)
+```
+
+Seasonality cannot be understood from this plot. Therefore, we should plot one of the weeks to see the seasonality.
+
+```{r}
+consumption_week <- consumption[Date <= "2016-01-07"]
+ggplot(consumption_week, aes(x=datetime, y = Consumption)) +
+  theme_minimal() +
+  geom_line(color='purple', alpha=0.6) + 
+  scale_x_datetime(breaks = '6 hour', date_labels = "%H") +
+  theme(axis.text.x = element_text(hjust = 1)) +
+  labs(x = 'Hours', 
+       y = 'Consumption (MWh)', 
+       title = "Turkey's Electricity Consumption between 1 January and 7 January")
+```
+
+It can be said that there is an obvious hourly seasonality in the data. The highest electricity consumption exists between 09.00-22.00. After 22.00, the consumption significantly decreases, as expected. The reason is that this part of the day is not active for people. This trend can be seen in average consumption by hours of a day plot.
+
+```{r, warning =FALSE}
+mean_consumption_hourly <- consumption %>%
+  group_by(hour(datetime)) %>%
+  summarise(mean_consumption = mean(Consumption))
+
+ggplot(mean_consumption_hourly, aes(x=`hour(datetime)`, y=mean_consumption)) +
+  theme_minimal() +
+  geom_line(color='purple', alpha=0.5) +
+  geom_point(color='purple') +
+  scale_x_continuous(breaks = seq(0,23,1)) +
+  labs(x = 'Hours', 
+       y = 'Consumption (MWh)', 
+       title = 'Average Consumption by Hours of a Day')
+```
+
+According to the plot, the assumptions given above are correct. 
+
+#### Daily Decomposition
+
+Firstly, we need to take the daily average of electricity consumption in order to analyze the trend and seasonality.
+
+```{r}
+daily_consumption <- consumption %>% 
+  group_by(Date) %>%
+  summarise(Mean_Consumption = mean(Consumption)) 
+
+ggplot(daily_consumption,aes(x=Date, y=Mean_Consumption)) +
+  theme_minimal() +
+  geom_line(color='red', alpha=0.5) +
+  scale_x_date(breaks = '6 months', date_labels = "%b %Y") +
+  labs(x = 'Date', 
+       y = 'Consumption (MWh)', 
+       title = 'Daily Average Consumption')
+
+```
+
+This graph shows the daily average electricity consumption. Now, we can decompose the data using ts object.
+
+```{r}
+daily_consumption_ts=ts(daily_consumption$Mean_Consumption,freq=7)
+ts_decomposed=decompose(daily_consumption_ts)
+```
+
+Trend component will be observed.
+
+```{r, warning=FALSE, message=FALSE}
+ts_decomposed_trend <- as.data.frame(cbind(as.data.frame(daily_consumption$Date),ts_decomposed$trend))
+colnames(ts_decomposed_trend) <- c("Date", "Consumption")
+
+ggplot(ts_decomposed_trend, aes(x=as.Date(Date), y=Consumption)) +
+  theme_minimal() +
+  geom_line(color='red', alpha=0.5)  +
+  scale_x_date(breaks = '3 months', date_labels = "%b %Y") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = 'Date', 
+       y = 'Consumption (MWh)', 
+       title = 'Daily Trend Component')
+```
+
+It can be said that there are some days where the daily consumption is significantly low. They should be holidays, such as religious days, or national days.
+
+Now, seasonality will be analyzed.
+
+```{r}
+plot(ts_decomposed$seasonal[1:21],type='l')
+points(ts_decomposed$seasonal[1:21],col=2)
+```
+
+The bottom points should be the electricity consumption on Sundays. Wednesdays and Thursdays are the days on which the highest electricity consumption is observed.
+
+#### Weekly Decomposition
+
+Now, weekly trend and seasonality will be explored.
+
+```{r, message=FALSE, warning=FALSE}
+weekly_consumption <- consumption %>% 
+  mutate(week = cut.Date(Date, breaks = "1 week")) %>% 
+  arrange(week) %>% group_by(week) %>%  summarise(Mean_Consumption = mean(Consumption)) 
+
+weekly_consumption_ts=ts(weekly_consumption$Mean_Consumption, start = 2016, freq = 52)
+ts_decomposed=decompose(weekly_consumption_ts)
+
+ts_decomposed_trend <- as.data.frame(cbind(as.data.frame(weekly_consumption$week),ts_decomposed$trend))
+colnames(ts_decomposed_trend) <- c("week", "Consumption")
+
+ggplot(ts_decomposed_trend, aes(x=as.Date(week), y=Consumption)) +
+  theme_minimal() +
+  geom_line(color='red', alpha=0.5)  +
+  scale_x_date(breaks = '3 months', date_labels = "%b") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = 'Date', 
+       y = 'Consumption (MWh)', 
+       title = 'Weekly Trend Component')
+```
+
+There is an upward trend from 2016 to 2021. In 2020, the electricity consumption decreased due to pandemic. The general upward trend may depend on the rise in production and population.
+
+Now, seasonality will be analyzed.
+
+```{r, message=FALSE}
+ts_decomposed_seasonal <- as.data.frame(cbind(as.data.frame(weekly_consumption$week),ts_decomposed$seasonal))
+colnames(ts_decomposed_seasonal) <- c("Week", "Consumption")
+ts_decomposed_seasonal$Week <- as.Date(ts_decomposed_seasonal$Week)
+
+ggplot(ts_decomposed_seasonal, aes(x=Week, y=Consumption)) +
+  theme_minimal() +
+  geom_line(color='blue', alpha=0.5) + 
+  scale_x_date(breaks = '3 months', date_labels = "%b") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = 'Date', 
+       y = 'Consumption (MWh)', 
+       title = 'Weekly Seasonal Component')
+```
+
+It can be said that the highest electricity consumption occurs between July and September, but it will be verified at monthly decomposition. Also, in winters, the electricity consumption increases.
+
+#### Monthly Decomposition
+
+Monthly trend and seasonality will be explored now.
+
+```{r, message=FALSE, warning=FALSE}
+monthly_consumption <- consumption %>% 
+  mutate(month = cut.Date(Date, breaks = "1 month")) %>% 
+  arrange(month) %>% group_by(month) %>%  summarise(Mean_Consumption = mean(Consumption)) 
+
+monthly_consumption_ts=ts(monthly_consumption$Mean_Consumption, start = 2016, freq = 12)
+ts_decomposed=decompose(monthly_consumption_ts)
+
+ts_decomposed_trend <- as.data.frame(cbind(as.data.frame(monthly_consumption$month),ts_decomposed$trend))
+colnames(ts_decomposed_trend) <- c("Month", "Consumption")
+
+ggplot(ts_decomposed_trend, aes(x=as.Date(Month), y=Consumption)) +
+  theme_minimal() +
+  geom_line(color='red', alpha=0.5) + geom_point(color="red") +
+  scale_x_date(breaks = '3 months', date_labels = "%b %Y") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = 'Date', 
+       y = 'Consumption (MWh)', 
+       title = 'Monthly Trend Component')
+
+```
+
+It can be observed that the monthly trend component is very similar to the weekly trend component. This one is smoother compared to weekly trend. 
+
+The seasonality component is below.
+
+```{r,message=FALSE, warning=FALSE}
+ts_decomposed_seasonal <- as.data.frame(cbind(as.data.frame(monthly_consumption$month),ts_decomposed$seasonal))
+colnames(ts_decomposed_seasonal) <- c("Month", "Consumption")
+
+ggplot(ts_decomposed_seasonal, aes(x=as.Date(Month), y=Consumption)) +
+  theme_minimal() +
+  geom_line(color='blue', alpha=0.5) + geom_point(color="blue") +
+  scale_x_date(breaks = '3 months', date_labels = "%b %Y") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = 'Date', 
+       y = 'Consumption (MWh)', 
+       title = 'Monthly Seasonal Component')
+```
+
+The assumptions made at "Weekly Decomposition" section are valid here. The weekly decomposition and monthly decomposition are very similar due to having the same time horizon. The highest electricity consumption occurs between July and September.
+
+### Task 2
+
+Firstly, to construct the model, we need to divide train and test datasets.
+
+```{r}
+consumption_train <- consumption[Date <= "2021-05-06"]
+consumption_test <- consumption[Date > "2021-05-06"]
+```
+
+
+Time decomposition is made below.
+
+```{r}
+hourly_daily_ts <- ts(consumption_train[,"Consumption"], freq = 168)
+hourly_daily_ts <- decompose(hourly_daily_ts,type="additive")
+plot(hourly_daily_ts)
+```
+
+Let's analyze the trend and seasonality separately. The trend graph is below.
+
+```{r, warning=FALSE, message=FALSE}
+ts_decomposed_trend <- as.data.frame(cbind(as.data.frame(consumption_train$datetime),hourly_daily_ts$trend))
+colnames(ts_decomposed_trend) <- c("Datetime", "Consumption")
+
+ggplot(ts_decomposed_trend, aes(x=as.Date(Datetime), y=Consumption)) +
+  theme_minimal() +
+  geom_line(color='red', alpha=0.5) + 
+  scale_x_date(breaks = '3 months', date_labels = "%b %Y") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = 'Date', 
+       y = 'Consumption (MWh)', 
+       title = 'Trend Component')
+
+```
+
+The trend graph is almost the same as the daily trend. It is reasonable because both the hour and the day determine the seasonality. 
+
+Now, the seasonality term will be investigated. Since it cannot be understood when we take the whole data, the first two weeks will be taken as a time horizon.
+
+```{r}
+ts_decomposed_seasonal <- as.data.frame(cbind(as.data.frame(consumption_train[1:336,"datetime"]),hourly_daily_ts$seasonal[1:336]))
+colnames(ts_decomposed_seasonal) <- c("Datetime", "Consumption")
+
+ggplot(ts_decomposed_seasonal, aes(x=Datetime, y=Consumption)) +
+  theme_minimal() +
+  geom_line(color='red', alpha=0.5) + 
+  labs(x = 'Date', 
+       y = 'Consumption (MWh)', 
+       title = 'Trend Component')
+```
+
+As mentioned above, the electricity consumption is at the lowest level on Sundays. Other claims given above are valid also here. The bottom points of waves should be night hours at which the electricity consumption is at the lowest level on the daily basis.
+
+### Task 3
+
+We need to deseasonalize and detrend the data to make the data stationary, which should be done to apply AR model.
+
+```{r}
+deseasonalized<-consumption_train$Consumption-hourly_daily_ts$seasonal
+detrend <- deseasonalized - hourly_daily_ts$trend
+stationary <- as.data.frame(cbind(as.data.frame(consumption_train[,"datetime"]),detrend))
+colnames(stationary) <- c("Datetime", "Consumption")
+
+ggplot(stationary, aes(x=Datetime, y=Consumption)) +
+  theme_minimal() +
+  geom_line(color='purple', alpha=0.5) + 
+  labs(x = 'Date', 
+       y = 'Consumption (MWh)', 
+       title = 'Detrended and Deseasonalized Data')
+```
+
+Now, the data seems stationary although there are some outliers, which may be special holidays. To check whether it is stationary, we can use unit root test. Since the hour of the day is important, we can put lag-24 for the test.
+
+```{r}
+unt_test = ur.kpss(stationary$Consumption, use.lag = 24) 
+summary(unt_test)
+```
+
+The null hypothesis of this test is the data is stationary. Since our test statistic is lower than all critical values, we fail to reject the null hypothesis. There is no need differencing.
+
+To find appropriate p values in AR model, we need to analyze autocorrelation in the data.
+
+```{r}
+acf(stationary$Consumption, na.action = na.pass)
+```
+
+According to the graph above, there is an exponential decay in autocorrelation, which is a good indicator for using AR variables. This decay ends in lag-9. Since lag-9, lag-10, lag-11, lag-12, and lag-13 are above the critical value, the models with these lag variables can be compared to each other.
+
+```{r}
+model1 <- arima(stationary$Consumption, order=c(9,0,0))
+print(model1)
+model2 <- arima(stationary$Consumption, order=c(10,0,0))
+print(model2)
+model3 <- arima(stationary$Consumption, order=c(11,0,0))
+print(model3)
+model4 <- arima(stationary$Consumption, order=c(12,0,0))
+print(model4)
+model5 <- arima(stationary$Consumption, order=c(13,0,0))
+print(model5)
+```
+
+According to the AIC values, we can say that using previous 13 hours of electricity consumption seems to be more helpful for better forecasting because it has the lowest AIC values. The parameter p can be increased but this strategy is computationally expensive and increases the model complexity, which may result in overfitting.
+
+We need to check residuals, which have to be around zero mean and distributed normally.
+
+```{r, warning=FALSE, message=FALSE}
+residuals <- model5$residuals
+residuals <- as.data.frame(cbind(as.data.frame(consumption_train[,"datetime"]),residuals))
+colnames(residuals) <- c("Datetime", "Residuals")
+
+ggplot(residuals, aes(x=Datetime, y=Residuals)) +
+  theme_minimal() +
+  geom_line(color='blue') + 
+  labs(x = 'Date', 
+       y = 'Residuals (MWh)', 
+       title = 'Residuals')
+```
+
+Residuals seem to be distributed around mean 0. In addition to that, they need to have a normal distribution. To check this, we can analyze Q-Q plot.
+
+```{r, message=FALSE, warning=FALSE}
+ggqqplot(residuals$Residuals)
+```
+
+Although there are sme outliers, the distribution seems to be normal. As a result, this model with lag-13 variables can be accepted as a baseline model.
+
+### Task 4
+
+Now, we need to check partial autocorrelation function to determine the parameter q for the MA model.
+
+```{r}
+pacf(stationary$Consumption, na.action = na.pass)
+```
+
+Note that the PACF plot has a significant spike only at lag 1, meaning that all the higher-order autocorrelations are effectively explained by the lag-1 autocorrelation. Since there are significantly high autocorrelation in lag-1 and lag-2 in different ways, we can try not to use error terms of autoregressive variables, or try to use lag-1, or lag-2 error terms.
+
+```{r}
+model6 <- arima(stationary$Consumption, order=c(0,0,0))
+print(model6)
+model7 <- arima(stationary$Consumption, order=c(0,0,1))
+print(model7)
+model8 <- arima(stationary$Consumption, order=c(0,0,2))
+print(model8)
+model9 <- arima(stationary$Consumption, order=c(0,0,3))
+print(model9)
+```
+
+Since the model with q=3 has lower AIC, it is chosen as the MA model. Increasing q variable results in more complex and computationally expensive model, so this is enough for now. Now, let's check residuals.
+
+```{r, warning=FALSE, message=FALSE}
+residuals <- model9$residuals
+residuals <- as.data.frame(cbind(as.data.frame(consumption_train[,"datetime"]),residuals))
+colnames(residuals) <- c("Datetime", "Residuals")
+
+ggplot(residuals, aes(x=Datetime, y=Residuals)) +
+  theme_minimal() +
+  geom_line(color='blue') + 
+  labs(x = 'Date', 
+       y = 'Residuals (MWh)', 
+       title = 'Residuals')
+```
+
+It can be said that the residuals have zero mean. As mentioned above, their normality should be proven. The Q-Q plot is below.
+
+```{r, message=FALSE, warning=FALSE}
+ggqqplot(residuals$Residuals)
+```
+  
+According to Q-Q plot, the residuals seem to have a normal distribution, which does not violate the assumption.
+
+### Task 5
+
+Now, the AIC values of models will be compared.
+
+```{r}
+AR <- model5
+MA <- model9
+AIC(AR)
+AIC(MA)
+```
+It can be seen that the autoregressive model has better performance than the moving average model. Now, they will be combined in an ARIMA model.
+
+```{r, warning=FALSE, message=FALSE}
+ARMA <- arima(stationary$Consumption, order=c(13,0,3))
+print(ARMA)
+checkresiduals(ARMA)
+```
+
+Since its AIC value is better than AIC values of both models, this model can be used for forecasting. Residuals seem to be distributed normally. There is a significant autocorrelation in lag-24, which the yesterday's consumption at the same hour.
+
+Firstly, the model will be fitted on the actual values.
+
+```{r}
+model_fitted <- as.numeric(stationary$Consumption - residuals(ARMA))
+model_fitted_transformed <- ts(model_fitted +as.numeric(hourly_daily_ts$trend)+as.numeric(hourly_daily_ts$seasonal), freq = 168)
+tail(model_fitted_transformed,85)
+plot(hourly_daily_ts$x, ylab = "Consumption (MWh)", main = "Actual Electricity Consumption", xlim = c(275, 282))
+points(model_fitted_transformed, type = "l", col = 2, lty = 2, xlim=c(275,282))
+```
+
+According to the plot above, the fitted model is successful for fitting the actual values. The last part of the data was used. 
+
+Now, forecasting will be made.
+
+```{r}
+model_forecast <- predict(ARMA, n.ahead = 14*24)$pred
+model_forecast_ts = ts(model_forecast,frequency = 168, start=c(280,1))
+```
+
+The forecast values do not include trend and seasonality. Therefore, they should be added in order to get final predictions and evaluate the model accurately. The last trend value can be used as a trend component. 
+
+```{r}
+last_trend = tail(hourly_daily_ts$trend[!is.na(hourly_daily_ts$trend)],1)
+tail(hourly_daily_ts$seasonal,1)
+
+```
+
+Since the last seasonality term is the end of a season, the first prediction starts with the beginning of the cycle. Therefore, we can take the first element of the seasonal term for the first prediction.
+
+```{r}
+seasonality_pred = hourly_daily_ts$seasonal[1:336]
+model_forecast_ts = model_forecast_ts + last_trend + seasonality_pred
+plot(hourly_daily_ts$x, ylab = "Consumption (MWh)",main="Forecasted Electricity Consumption",xlim=c(275,282))
+points(model_fitted_transformed, type = "l", col = 2, lty = 2, xlim=c(275,282))
+points(model_forecast_ts, type = "l", col = 4)
+```
+
+Blue line indicates the forecasted electricity consumption. These fore3casts seem to be reasonable. We need to check with the test data and find the error.
+
+```{r}
+consumption_test_ts <- ts(consumption_test[,"Consumption"], freq = 168, start=c(280,1))
+comparison <- data.table(cbind(as.data.frame(consumption_test[,c("datetime","Date")]),consumption_test_ts, model_forecast_ts))
+colnames(comparison) <- c("Datetime", "Date","Real_Consumption", "Forecasted_Consumption")
+ggplot(comparison ,aes(x=Datetime)) +
+  geom_line(aes(y=Real_Consumption,color='Real Consumption')) + 
+  geom_line(aes(y=Forecasted_Consumption,color='Forecasted Consumption')) +
+  theme(legend.title = element_blank()) +
+  labs(x = "Date", y = "Consumption (MWh)", title = "Forecasted vs. Actual Electricity Consumption")
+```
+
+The plot compares the actual data with the predictions. It can be said that the model seems to be successful and catches the behaviors. There is a sudden decrease in the consumption between May 13th and 16th due to Ramadan holiday. Since our ARMA model cannot take holidays into consideration, the model fails to predict that decrease.
+
+Now, the error will be calculated by using weighted mean absolute percentage error. Firstly, daily consumption will be calculated.
+
+```{r}
+daily_comparison <- comparison[,list(Daily_Real_Consumption=sum(Real_Consumption), Daily_Forecasted_Consumption=sum(Forecasted_Consumption)), by =Date]
+daily_comparison[,Perc_Error:=abs(as.numeric(Daily_Real_Consumption)-as.numeric(Daily_Forecasted_Consumption))/as.numeric(Daily_Real_Consumption) * 100]
+paste0("WMAPE = ", sum(daily_comparison$Perc_Error*daily_comparison$Daily_Real_Consumption)/sum(daily_comparison$Daily_Real_Consumption))
+```
+
+So, WMAPE is 9.29%, which is not a high error. 
+
+### Conclusion
+
+There is hourly and daily seasonality in the electricity consumption data. Holidays are also effective in a negative way, but ARIMA does not take these into consideration. However, in general, according to the plots, the model seems to be successful. The model uses 13 previous hourly electricity consumption and 3 previous error terms. There are still deficiencies, which can be used to improve the model, such as using religious holidays, or take the consumption on the previous day at the same time into the model. 
