@@ -11,3 +11,7 @@
 ## Homework 2
 
 [Here](files/IE_360_Homework_2.html) is Homework 2. You can access to the codes [here](files/IE_360_Homework_2.r)
+
+## Homework 3
+
+[Here](files/Homework_3.html) is Homework 3. You can access to the codes [here](files/Homework_3.Rmd)
