@@ -1,0 +1,990 @@
+---
+title: "IE 360 Project"
+author: "Alkım Can Çelik - Yusuf Uluçoban - Özgürcan Öztaş"
+date: "02 07 2021"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    code_folding: hide
+  
+---
+
+## Problem Description
+
+In this project, the main goal is to forecast the sales of 9 products for the dates between 01.06.2021 and 27.06.2021. Forecasting sales in online retail problem is very challenging due to randomness and depending on many factors. 
+
+There are 9 product types. These are:
+
+- Mont
+- Bikini Üstü-1
+- Bikini Üstü-2
+- Tayt
+- Bluetooth Kulaklık
+- Dik Süpürge
+- Yüz Temizleyici
+- Bebek Islak Mendil
+- Şarj Edilebilir Diş Fırçası
+
+The data include the following features:
+
+- The number of visits for the product
+- The number of adding the product into the basket
+- The number of favoring the product
+- The total sale amount of the product's category
+- The number of visits of the product's category
+- The total number of adding any product belonging to the same category of the product into the basket
+- The number of favoring any product belonging to the same category of the product
+- The total sale amount of the product's brand for the same category
+- The number of visits of Trendyol
+
+Using the necessary features, the number of total sale of product in a day will be forecasted.
+
+## Approach
+
+Note: The necessary functions, libraries, and the data are imported. 
+```{r, warning=FALSE, message=FALSE}
+library(dplyr)
+library(tidyr)
+library(data.table)
+library(lubridate)
+library(ggplot2)
+library(GGally)
+library(urca)
+library(forecast)
+library(rjson)
+library(zoo)
+library(caret)
+library(ggcorrplot)
+
+read_data <- function(path, shift = T){
+  setwd(path)
+  data <- read.csv("ProjectRawData.csv")
+  data$event_date = ymd(data$event_date)
+  data <- data[!(is.na(data$event_date)) | !(is.na(data$product_content_id)),]
+  data <- data.table(data)
+  
+  result <- fromJSON(file = "indir.json")
+  table <- data.frame()
+  for (i in 1:length(result)){
+    a <- as.data.frame(result[i])
+    table <- rbind(table, a)
+  }
+  
+  table <- data.table(table[,c(2,3,1,4,5,7,6,8,10,12,13,9,11)])
+  table$event_date <- as.Date(table$event_date)
+  table <- table[event_date>="2021-05-29",]
+  new_table_len <- nrow(table)
+  current_data <- rbind(table,data)
+  
+  if(!shift){
+    return(current_data)
+  }
+  else{
+    data_corrected <- current_data[1:new_table_len,c(1:7,12,8:11,13)]
+    colnames(data_corrected) <- colnames(current_data)
+    data_deficit <- current_data[-(1:new_table_len),]
+    data_corrected <- data.table(rbind(data_corrected, data_deficit))
+    data_corrected[price<0,price:=NA]
+    return(data_corrected)
+  }
+}
+
+visit_count_calc <- function(data_prod){
+  data_prod <- data_prod[,var:=basket_count-mean(basket_count)]
+  train <- data_prod[data_prod$event_date>"2021-01-29"]
+  test <- data_prod[data_prod$event_date<="2021-01-29" & data_prod$event_date>"2020-12-10"]
+  model <- lm(visit_count~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$visit_count <- round(pred)
+  
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-12-10"]
+  test <- data_prod[data_prod$event_date<="2020-12-10" & data_prod$event_date>"2020-10-10"]
+  model <- lm(visit_count~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$visit_count <- round(pred)
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-10-10"]
+  test <- data_prod[data_prod$event_date<="2020-10-10" & data_prod$event_date>"2020-08-01"]
+  model <- lm(visit_count~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$visit_count <- round(pred)
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-08-01"]
+  test <- data_prod[data_prod$event_date<="2020-08-01" & data_prod$event_date>="2020-05-25"]
+  model <- lm(visit_count~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$visit_count <- round(pred)
+  test_train <- rbind(train,test)
+  
+  data_prod$visit_count <- test_train$visit_count
+  data_prod$visit_count <- ifelse(data_prod$visit_count <= 0,0,data_prod$visit_count)
+  return(data_prod)
+}
+
+favored_count_calc <- function(data_prod){
+  data_prod <- data_prod[,var:=basket_count-mean(basket_count)]
+  train <- data_prod[data_prod$event_date>"2021-01-29"]
+  test <- data_prod[data_prod$event_date<="2021-01-29" & data_prod$event_date>"2020-12-10"]
+  model <- lm(favored_count~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$favored_count <- round(pred)
+  
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-12-10"]
+  test <- data_prod[data_prod$event_date<="2020-12-10" & data_prod$event_date>"2020-10-10"]
+  model <- lm(favored_count~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$favored_count <- round(pred)
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-10-10"]
+  test <- data_prod[data_prod$event_date<="2020-10-10" & data_prod$event_date>"2020-08-01"]
+  model <- lm(favored_count~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$favored_count <- round(pred)
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-08-01"]
+  test <- data_prod[data_prod$event_date<="2020-08-01" & data_prod$event_date>="2020-05-25"]
+  model <- lm(favored_count~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$favored_count <- round(pred)
+  test_train <- rbind(train,test)
+  
+  data_prod$favored_count <- test_train$favored_count
+  data_prod$favored_count <- ifelse(data_prod$favored_count <= 0,0,data_prod$favored_count)
+  return(data_prod)
+}
+
+category_basket_calc <- function(data_prod){
+  data_prod <- data_prod[,var:=category_favored-mean(category_favored)]
+  train <- data_prod[data_prod$event_date>"2021-01-29"]
+  test <- data_prod[data_prod$event_date<="2021-01-29" & data_prod$event_date>"2020-12-10"]
+  model <- lm(category_basket~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$category_basket <- round(pred)
+  
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-12-10"]
+  test <- data_prod[data_prod$event_date<="2020-12-10" & data_prod$event_date>"2020-10-10"]
+  model <- lm(category_basket~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$category_basket <- round(pred)
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-10-10"]
+  test <- data_prod[data_prod$event_date<="2020-10-10" & data_prod$event_date>"2020-08-01"]
+  model <- lm(category_basket~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$category_basket <- round(pred)
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-08-01"]
+  test <- data_prod[data_prod$event_date<="2020-08-01" & data_prod$event_date>="2020-05-25"]
+  model <- lm(category_basket~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$category_basket <- round(pred)
+  test_train <- rbind(train,test)
+  
+  data_prod$category_basket <- test_train$category_basket
+  return(data_prod)
+}
+
+category_brand_sold_calc <- function(data_prod){
+  data_prod <- data_prod[,var:=category_sold-mean(category_sold)]
+  train <- data_prod[data_prod$event_date>"2021-01-29"]
+  test <- data_prod[data_prod$event_date<="2021-01-29" & data_prod$event_date>"2020-12-10"]
+  model <- lm(category_brand_sold~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$category_brand_sold <- round(pred)
+  
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-12-10"]
+  test <- data_prod[data_prod$event_date<="2020-12-10" & data_prod$event_date>"2020-10-10"]
+  model <- lm(category_brand_sold~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$category_brand_sold <- round(pred)
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-10-10"]
+  test <- data_prod[data_prod$event_date<="2020-10-10" & data_prod$event_date>"2020-08-01"]
+  model <- lm(category_brand_sold~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$category_brand_sold <- round(pred)
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-08-01"]
+  test <- data_prod[data_prod$event_date<="2020-08-01" & data_prod$event_date>="2020-05-25"]
+  model <- lm(category_brand_sold~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$category_brand_sold <- round(pred)
+  test_train <- rbind(train,test)
+  
+  data_prod$category_brand_sold <- test_train$category_brand_sold
+  return(data_prod)
+}
+
+ty_visits_calc <- function(data_prod){
+  data_prod <- data_prod[,var:=category_sold-mean(category_sold)]
+  train <- data_prod[data_prod$event_date>"2021-01-29"]
+  test <- data_prod[data_prod$event_date<="2021-01-29" & data_prod$event_date>"2020-12-10"]
+  model <- lm(ty_visits~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$ty_visits <- round(pred)
+  
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-12-10"]
+  test <- data_prod[data_prod$event_date<="2020-12-10" & data_prod$event_date>"2020-10-10"]
+  model <- lm(ty_visits~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$ty_visits <- round(pred)
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-10-10"]
+  test <- data_prod[data_prod$event_date<="2020-10-10" & data_prod$event_date>"2020-08-01"]
+  model <- lm(ty_visits~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$ty_visits <- round(pred)
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-08-01"]
+  test <- data_prod[data_prod$event_date<="2020-08-01" & data_prod$event_date>="2020-05-25"]
+  model <- lm(ty_visits~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$ty_visits <- round(pred)
+  test_train <- rbind(train,test)
+  
+  data_prod$ty_visits <- test_train$ty_visits
+  return(data_prod)
+}
+
+data_manip <- function(product_id, normal = T, discount = T, shift = T){
+  
+  data_prod = data[data$product_content_id == product_id,]
+  
+  data_prod <- visit_count_calc(data_prod)
+  
+  data_prod <- favored_count_calc(data_prod)
+  
+  data_prod <- category_basket_calc(data_prod)
+  
+  data_prod <- category_brand_sold_calc(data_prod)
+  
+  data_prod <- ty_visits_calc(data_prod)
+  
+  data_prod <- data_prod %>% fill(price, .direction = "up")
+  
+  data_prod <- data_prod %>% fill(price, .direction = "down")
+  
+  data_prod$product_content_id <- NULL
+  
+  data_prod$var <- NULL
+  
+  data_prod <- arrange(data_prod, event_date)
+  
+  
+  if(discount){
+    data_prod[,lag_1:=shift(price)]
+    
+    data_prod[,discount := (lag_1-price)]
+    
+    data_prod$discount <- na.fill(data_prod$discount, 0)
+  }
+  
+  if(normal){
+    preproc <- preProcess(data_prod[,c(4:12)], method=c("center", "scale"))
+    
+    new_cols <- predict(preproc, data_prod[,c(4:12)])
+    
+    data_prod[,c(4:12)] <- new_cols
+  }
+  
+  data_prod$lag_1 <- NULL
+  
+  return(data_prod)
+}
+
+accu=function(actual,forecast){
+  n=length(actual)
+  error=actual-forecast
+  mean=mean(actual)
+  sd=sd(actual)
+  CV=sd/mean
+  FBias=sum(error)/sum(actual)
+  MAPE=sum(abs(error/actual))/n
+  RMSE=sqrt(sum(error^2)/n)
+  MAD=sum(abs(error))/n
+  MADP=sum(abs(error))/sum(abs(actual))
+  WMAPE=MAD/mean
+  l=data.frame(n,mean,sd,CV,FBias,MAPE,RMSE,MAD,MADP,WMAPE)
+  return(l)
+}
+
+forecast_with_arima=function(data,forecast_ahead,target_name='sold_count',
+                             is_seasonal=F,is_stepwise=F,is_trace=T,is_approx=F, xreg1 = NULL){
+  command_string=sprintf('input_series=data$%s',target_name)
+  print(command_string)
+  eval(parse(text=command_string))
+  
+  fitted=auto.arima(input_series,seasonal=is_seasonal,
+                    trace=is_trace,stepwise=is_stepwise,approximation=is_approx, xreg = xreg1)
+  
+  forecasted=predict(fitted,n.ahead=forecast_ahead, newxreg = tail(xreg1,forecast_ahead))$pred
+  return(list(forecast=forecasted,model=fitted))
+}
+
+forecast_with_arima_extended=function(data,forecast_ahead,target_name='sold_count',
+                                      is_seasonal=F,is_stepwise=F,is_trace=T,is_approx=F, 
+                                      seasonality_period=NULL,fitted_model=NULL, xreg1 = NULL, decomposed = NULL){
+  
+  if(is_seasonal & !is.null(seasonality_period)){
+    command_string=sprintf('input_series=ts(data$%s,freq=%d)',target_name,seasonality_period)
+    
+  } else {
+    command_string=sprintf('input_series=data$%s',target_name)
+  }
+  print(command_string)
+  eval(parse(text=command_string))
+  
+  if(!is.null(decomposed)){
+    input_series_decomposed=decompose(input_series,type = "additive")
+    random <- input_series_decomposed$random
+  }
+  
+  if(is.null(fitted_model)){
+    if(!is.null(decomposed)){
+      fitted=auto.arima(random,seasonal=is_seasonal,
+                      trace=is_trace,stepwise=is_stepwise,approximation=is_approx, xreg = xreg1)
+    }
+    else{
+      fitted=auto.arima(input_series,seasonal=is_seasonal,
+                        trace=is_trace,stepwise=is_stepwise,approximation=is_approx, xreg = xreg1)
+    }
+  } else {
+    fitted=Arima(random, model=fitted_model)
+  }
+  
+  if(is.null(xreg1)){
+    forecasted=predict(fitted,n.ahead=forecast_ahead)$pred
+    if(!is.null(decomposed)){
+      forecasted = forecasted + input_series_decomposed$seasonal[(length(ts) %% 7 +1) : (length(ts) %% 7 + forecast_ahead)] + tail(input_series_decomposed$trend[!is.na(input_series_decomposed$trend)],1)
+    }
+  }
+  else{
+    forecasted=predict(fitted,n.ahead=forecast_ahead, newxreg = tail(xreg1,forecast_ahead))$pred
+    if(!is.null(decomposed)){
+      forecasted = forecasted + input_series_decomposed$seasonal[(length(ts) %% 7 +1) : (length(ts) %% 7 + forecast_ahead)] + tail(input_series_decomposed$trend[!is.na(input_series_decomposed$trend)],1)
+    }
+  }
+  
+  return(list(forecast=forecasted,model=fitted))
+}
+
+plotting <- function(data, product_name, col, num = 1){
+  if(num == 1){
+  ggplot(data) + geom_line(aes(x = event_date, y = sold_count), color = col) + 
+    labs(x="Date", y="The Number of Sold", title = paste0("Sales(", product_name,")")) +
+    theme_minimal()
+  }
+  else{
+    ggplot(data) + geom_line(aes(x = event_date, y = sold_count, color = "Actual")) + 
+      geom_line(aes(x=event_date, y = prediction, color = "Prediction" ))+
+      labs(x="Date", y="Sales", title = paste0("Comparison of Sales and Predictions for ", product_name)) +
+      theme_minimal()
+  }
+}
+
+cor_plot <- function(data, product_name){
+  head(data)
+  corr <- round(cor(data[,c(2:13)]), 2)
+  
+  ggcorrplot(corr, hc.order = TRUE, 
+             type = "lower", 
+             lab = TRUE, 
+             lab_size = 3, 
+             method="circle", 
+             colors = c("tomato2", "white", "springgreen3"), 
+             title=paste0("Correlogram of ", product_name), 
+             ggtheme=theme_bw)
+}
+
+forecast_func <- function(data, reg_matrix){
+  test <- data[event_date>"2021-05-31"]
+  test_dates <- test$event_date
+  results=vector('list',length(test_dates))
+  for(i in 1:length(unique(test$event_date))){
+    current_date=test_dates[i]-2
+    past_data=data[event_date<=current_date]
+    reg_matrix_past <- reg_matrix[1:nrow(past_data),1]
+    forecast_data=data.table(data[event_date==test_dates[i]])
+    model <- forecast_with_arima_extended(data = past_data, forecast_ahead = 2, is_seasonal = T,
+                                          seasonality_period = 7, is_trace = F,
+                                          xreg1 = reg_matrix_past)
+    forecasted=model$forecast 
+    forecasted = ifelse(forecasted<0,0,forecasted)
+    forecast_data[,prediction:=forecasted[2]]
+    results[[i]]=forecast_data
+    print(i)
+  }
+  results <- rbindlist(results)
+  return(results[,c("event_date","sold_count", "prediction")])
+}
+
+data <- read_data("C:/Users/alkim/Documents/GitHub/IE360ClassProject", shift = F)
+```
+
+When the data are analyzed by hand, it is realized that some features (visit count, favored count, category basket, category brand sold, trendyol visits) do not have any data before 30.01.2021. These are visualized below.
+
+```{r, warning=FALSE, message=FALSE}
+ggplot(data[product_content_id == "85004",],aes(x=event_date))+
+  geom_line(aes(y=category_basket), color="black")+
+  labs(x="Date",y="The number of adding the same category products into the basket", title="Category Basket")+
+  theme_minimal()
+```
+
+It can be seen that the the large portion of data is zero for this feature. There are 4 more features having the same issue. Discarding this part of the data would not be a good option because the model would not be good to catch the seasonalities. Therefore, past data are predicted by using linear regression with a variable in the data. For instance, category brand sold is estimated by using category sold. The features are selected in a logical way. However, this way increases the multicollinearity (structural), which may affect the model performance. Thus, the independent variable in the linear regression is (x-x_bar). You can reach this way from [this link](https://online.stat.psu.edu/stat462/node/182/). The implementation can be found in the functions above.
+
+The new feature is plotted below.
+
+```{r, warning=FALSE, message=FALSE}
+data_85004 <- data_manip("85004", normal = F, shift = F)
+ggplot(data_85004,aes(x=event_date))+
+  geom_line(aes(y=category_basket), color="black")+
+  labs(x="Date",y="The number of adding the same category products into the basket", title="Category Basket")+
+  theme_minimal()
+```
+
+It can be said that the data before 30.01.2021 seem to be distributed randomly. 
+
+
+It is obvious that after 28.05.2021, the number of adding the product in the same category into the basket has decreased very significantly, which seems not normal. After visual inspection, it is realized that every column is shifted by one. The corrected version is below.
+
+```{r, warning=FALSE, message=FALSE}
+data <- read_data("C:/Users/alkim/Documents/GitHub/IE360ClassProject", shift = T)
+data_85004 <- data_manip("85004", normal = F, shift = T)
+ggplot(data_85004,aes(x=event_date))+
+  geom_line(aes(y=category_basket), color="black")+
+  labs(x="Date",y="The number of adding the same category products into the basket", title="Category Basket")+
+  theme_minimal()
+```
+
+Although there is a downward trend after this date, the scale shows that the assumption made above seems correct.
+
+In addition, daily price changes are added into the dataset. This way may help to catch sudden increases in sales due to discounts. Special days may be helpful as well, but since not all products' prices decrease at the same time, the price difference should be more robust. 
+
+Some features have large values, such as the total number of visits of Trendyol. These have to be normalized in order to improve the model performance. Scale differences may affect the effectiveness of the features. Therefore, necessary features are normalized. They are embedded into the model, which means the data in this report are displayed without normalization.
+
+After some trials, it is observed that adding seasonality into ARIMA model (SARIMA) improves the model significantly. Therefore, SARIMA model will be used. In addition, since the number of data points is not large, auto.arima function will be used.
+
+Firstly, the data need to be analyzed for each product. Since the forecasting process take too much time, they will be imported when they will be analyzed. The forecast code can be found above.
+
+## Results
+
+### 1) Dik Süpürge
+
+For the product with id 7061886, which is "Dik Süpürge", we've applied multiple feature engineering methods to overcome the insufficient or misleading data in several features. After that, we've established a stable version of our dataset. Even if it is patched with its own data, we've been compliant with the structure of the data itself and as explained above, we've tried to outmanuever the effects of multicollinearity.
+
+```{r, warning=FALSE, message=FALSE}
+data_7061886 <- data_manip("7061886", normal = F) # Dik Süpürge, for demonstration purposes only.
+head(data_7061886)
+data_7061886 <- data_manip("7061886", normal = T) # Dik Süpürge
+```
+Then, we've plotted the sold count of the "Dik Süpürge" over time and it shows that aside from several special days, the number of sold hand vacuums have shown a nearly constant variance and linear trend. Therefore, we can say that the data set do not require more improvements, and it is suitable for a model development.
+
+```{r}
+plotting(data_7061886, "Dik Süpürge", "blue")
+```
+
+Hence, we are ready to develop our model. We'd like to utilize the power and reliability of SARIMA models with external regressors, thus let's examine the correlation graph of our dataset.
+
+```{r, warning = FALSE, message = FALSE}
+cor_plot(data_7061886, "Dik Süpürge")
+```
+
+It shows that sold_count, which is our forecast target feature, is highly correlated with visit count and basket count. It is possible to have these two as our external regressors, but the correlation between visit count and basket count are 1, which is an indicator of total correlation. Therefore, it is unnecessary to have these two regressors as our external regressors, hence we've chosen only the "visit_count" as our regressor to aid the SARIMA model to forecast the desired interval. Also, from the logical approach, we can say that if a person visits a "Dik Süpürge", they have mostly planned themselves to buy the "Dik Süpürge". Since it is not a daily need like bread or water, the people who actually needed it demand the product, hence they visit Trendyol and possibly this product.
+
+```{r, eval = FALSE}
+forecast_7061886 = forecast_func(data_7061886, reg_matrix = cbind(data_7061886$visit_count))
+```
+
+After the forecasting, it is time to compare our predictions with the actual values. The plot below shows both predicted and actual values. Predicted values are plotted as in black and the actual values are represented as in blue. We can say that the predictions are not that far off from its actual values, but it can be improved.
+
+```{r}
+load("forecast_7061886.RData")
+plotting(forecast_7061886, "Dik Süpürge", "blue", num = 2)
+```
+
+Finally, let's consider the metrics of our model. We've stated many metrics below and we mostly take "WMAPE" into consideration for simplicity. And our WMAPE score is 0.39, which indicates that we've created a sufficient model that understands the general direction of the time series, but it needs many enhancements to reach its final state.
+
+```{r}
+accu(forecast_7061886$sold_count, forecast_7061886$prediction)
+```
+
+
+### 2) Bluetooth Kulaklık
+
+The data is imported.
+
+```{r, warning=FALSE, message=FALSE}
+data_6676673 <- data_manip("6676673", normal = F)#Bikini Üstü
+head(data_6676673)
+```
+Now, the number of sales will be displayed.
+
+```{r, warning = FALSE, message=FALSE}
+data_6676673 <- data_manip("6676673")#Bikini Üstü
+plotting(data_6676673, "Bluetooth Kulaklık", "navyblue")
+```
+
+The number of sales seems to be distributed randomly. Like the other products, there are some outliers, probably in special days. There is no obvious trend, or seasonality.
+
+The correlation matrix will be demonstrated below.
+
+```{r}
+cor_plot(data_6676673, "Bluetooth Kulaklık")
+```
+
+It can be seen that the number of adding the product into the basket has the highest correlation with the number of sales, which is expected because if a "Bluetooth Kulaklık" is added into the basket, it should be bought generally because it is not bought frequently. 
+
+In addition, the price has a strong negative correlation with the sales. People may wait for "Bluetooth Kulaklık" getting discount during special days, such as Black Friday etc. As a result, price will be added as a feature in addition to basket_count feature.
+
+The model is below.
+
+```{r, eval = FALSE}
+forecast_6676673 = forecast_func(data_6676673, cbind(data_6676673$basket_count, data_6676673$price))
+```
+
+The comparison is below.
+
+```{r}
+load("forecast_6676673")
+
+plotting(forecast_6676673, "Bluetooth Kulaklık", "navyblue", num = 2)
+```
+
+Sudden changes in sales cannot be easily predicted by the model. Close predictions are observed from the graph. General performance of the model seems good.
+
+The error rates are below.
+
+```{r}
+accu(forecast_6676673$sold_count, forecast_6676673$prediction)
+```
+
+WMAPE is low, which means the model has a great performance. Although the standard deviation is quite high, the model performs well.
+
+### 3) Bebek İslak Mendil
+
+For the product with id 4066298, which is "Bebek Islak Mendil", we've inspected the dataset and found out that data itself has no significant errors or many missing data values. However, it is essential to recover the state of the dataset to its greatest form, thus we've applied several feature engineering methods to ensure the integrity of the dataset. Below, you can see several examples of the data set.
+
+```{r, warning=FALSE, message=FALSE}
+data_4066298 <- data_manip("4066298", normal = F) # Bebek Islak Mendil, for demonstration purposes only
+head(data_4066298)
+data_4066298 <- data_manip("4066298", normal = T) # Bebek Islak Mendil
+```
+
+After sample illustration, let's cover the status and direction of the sold count of the data set over time. The first part of the data, which is until mid November 2020, there's an increasing exponential structure that can be seen clearly, between mid November 2020 and January 2021, there's an decreasing exponential structure, and starting from January 2021, there's again an increasing exponential structure until today. The peak values are mostly the discount days of Trendyol itself, thus ignoring the peak values would lead us to a constant variance and non-zero mean. These findings are enough to take action, but it would be wise to reflect upon the correlation plot of the data set. 
+
+```{r}
+plotting(data_4066298, "Bebek Islak Mendil", "blue")
+```
+
+The correlation plot of the data set implies that sold count has higher correlation with category sold than other features. In logic, we can explain it as follows: Most of the customers are tend to use "Bebek Islak Mendil" quite a lot and it is a critical need for families that have babies or kids. Also, these items have quite a price, therefore their primal instinct guides them to search it without any brand specification. Therefore, its categorical sold value and the sold value of our product are highly correlated. Now, we can use this information as an external regressor in our SARIMA model enhanced with external regressors. 
+
+```{r}
+cor_plot(data_4066298, "Bebek Islak Mendil")
+```
+
+Hence, we construct our model with the newfound external regressor.
+
+```{r, eval = FALSE}
+forecast_4066298 = forecast_func(data_4066298, cbind(data_4066298$category_sold))
+```
+
+As the plot illustrates, our actual values are colored with blue and the predicted values are colored with black. The predicted values are off of its actual ones, but the trajectory and the trend of our predictions are quite similar with the trend and trajectory of the actual data, thus we can say that we've performed more than sufficient.
+
+```{r}
+load("forecast_4066298.RData")
+plotting(forecast_4066298, "Bebek Islak Mendil", "blue", num = 2)
+```
+
+Finally, let's check out the metrics of our model and we can say that even if we have a moderate WMAPE result, our plot shows that we've guessed the trajectory and trend of the data with a 1 or 2 day interval, thus we are happy with our result.
+
+```{r}
+accu(forecast_4066298$sold_count, forecast_4066298$prediction)
+```
+
+
+### 4) Bikini Üstü (1) 
+
+After compiling necessary manipulations of data such as filling misleading values, shifting the columns for the data added later etc., moving to the deeper analysis for predictions would be wise. For further analysis, let us have a look at the data for the "bikini top" which has a product id "73318567".
+
+```{r, warning=FALSE, message=FALSE}
+data_73318567 <- data_manip("73318567", normal = T)
+head(data_73318567)
+```
+
+To provide a forecast model, observing data over time is very useful.
+
+```{r}
+plotting(data_73318567, "Bikini Üstü (1)", "red")
+```
+
+Here, each column of the data is normalized since working with normalized data is better to minimize their weighted correlation.  
+As you can observe from the plot, the sales over time are very different from each other. There are not any sales nearly until February 2021. The reason behind that could be the bikini top is not for the sale in that time frame. After February 2021 the sales are increased and decreased instantly, and again there are no sales. The reason behind that also could be the same.  
+Later, when the summer hits, the sales increased very quick which may be occurred because of the change in price or increased stocks in our product.
+In order to become a good prediction model, the model needs some regressors to predict next sales. The regressors are reachable from correlations matrix. 
+
+```{r}
+cor_plot(data_73318567, "Bikini ÃœstÃ¼ (1)")
+```
+
+From this table, it is clear that "sold_count" is mostly correlated with "basket_count" and the second mostly with "visit_count" same as the correlations for the "coat". However, "basket_count" and "visit_count" are highly correlated which is a danger sign for us about not to use both of them. As a result, the model will only use "basket_count" column to predict further sales. 
+
+```{r, eval = FALSE}
+forecast_73318567 = forecast_func(data_73318567, cbind(data_73318567$basket_count))
+```
+
+To understand the property of our forecasting model, let R plot the actual and forecasted values.
+
+```{r}
+load("forecast_73318567.RData")
+plotting(forecast_73318567, "Bikini Üstü (1)", "red", num = 2)
+```
+
+The forecast are seems really good actually, also the trend is fitted again.  
+For a clear last step, let us check our "accu" function which controls accuracy of prediction model.
+
+```{r}
+accu(forecast_73318567$sold_count, forecast_73318567$prediction)
+```
+
+
+The forecast model seems accurate enough if the MADP and WMAPE are considered. 
+
+
+### 5) Bikini Üstü (2)
+
+The data is imported.
+
+```{r, warning=FALSE, message=FALSE}
+data_32737302 <- data_manip("32737302", normal = F)#Bikini Üstü
+head(data_32737302)
+```
+
+Now, the number of sales will be plotted.
+
+```{r, warning=FALSE, message=FALSE}
+data_32737302 <- data_manip("32737302")#Bikini Üstü
+plotting(data_32737302, "Bikini Üstü (2)", "green")
+```
+
+It can be said that there is almost no sale between August 2020 and March 2021, which is reasonable because people do not tend to buy bikini in Winter. Moreover, there is an upward trend in sales after April 2021 because people tend to prepare to the holiday period during Spring. Like the other products, daily number of sales always fluctuates. 
+
+Now, the correlation between features will be explored.
+
+```{r}
+cor_plot(data_32737302, "Bikini Üstü (2)")
+```
+
+According to the correlogram above, the number of products added into the basket has the highest correlation with the number of sales. Since most of the features are correlated to each other, adding other features in addition to basket_count violates the regression assumption, which is the regressors must independent. Therefore, basket_count will be added into the model as a sole feature. 
+
+```{r, eval = FALSE}
+forecast_32737302 = forecast_func(data_32737302, cbind(data_32737302$basket_count))
+```
+
+The comparison of actual values and predictions between 01.06.2021 and 27.06.2021 is displayed below.
+
+```{r}
+load("forecast_32737302.RData")
+plotting(forecast_32737302, "Bikini Üstü (2)", "green", num = 2)
+```
+
+Although the model cannot catch the unnatural sales quickly, it can be said that it gives close predictions to the actual sales. Error rates will be analyzed in order to interpret the results more properly.
+
+```{r}
+accu(forecast_32737302$sold_count, forecast_32737302$prediction)
+```
+
+Weighted mean absolute percentage error (WMAPE) is 0.27, which is not high. Our model seems to perform well. 
+
+### 6) Yüz Temizleyici
+
+The data is imported.
+
+```{r, warning=FALSE, message=FALSE}
+data_85004 <- data_manip("85004", normal = F)#Bikini Üstü
+head(data_85004)
+```
+Now, the number of sales will be displayed.
+
+```{r, warning = FALSE, message=FALSE}
+data_85004 <- data_manip("85004")#Bikini Üstü
+plotting(data_85004, "Yüz Temizleyici", "blue")
+```
+
+The number of sales for "Yüz Temizleyici" seems stationary, but there is a slight increase in sales in general after January 2021. There are some outliers due to probably special discounts. It is hard to predict the sales due to these randomness.
+
+Now, the correlation between features will be explored.
+
+```{r}
+cor_plot(data_85004, "Yüz Temizleyici")
+```
+The highest correlation with the number of sales belongs to the number of sales in the same category, which is reasonable because people generally tend to choose a "Yüz Temizleyici" among the similar products. Since price and discounts are not significantly correlated with the number of sales, only category_sold will be added into the model. 
+
+```{r, eval = FALSE}
+forecast_85004 = forecast_func(data_85004, cbind(data_85004$category_sold))
+```
+
+The comparison between actual sales and predictions is demonstrated below. 
+
+```{r}
+load("forecast_85004.RData")
+
+plotting(forecast_85004, "Yüz Temizleyici", "blue", num = 2)
+```
+
+It can be said that the model seems to fit well. At some points, there are bizarre predictions, but in general, it seems good.
+
+The error percentages are below.
+
+```{r}
+accu(forecast_85004$sold_count, forecast_85004$prediction)
+```
+
+WMAPE is 0.248, which is very good compared to the predictions for the other products. The reason is that the number of sales shows a stationary behavior. 
+
+### 7) Şarj Edilebilir Diş Fırçası
+
+Our another product is the one with the id "32939029", which is "Şarj Edilebilir Diş Fırçası", and it was one of the products that did not require intense feature engineering. Yet, we do not like leaving tasks to chance, thus we've also applied the same feature engineering methods to this data set. And we've shown the 5 instances of our data set to be understood by the readers.
+
+```{r, warning=FALSE, message=FALSE}
+data_32939029 <- data_manip("32939029", normal = F) # Şarj Edilebilir Diş Fırçası, for demonstration purposes only
+head(data_32939029)
+data_32939029 <- data_manip("32939029", normal = T) # Şarj Edilebilir Diş Fırçası
+```
+
+Now, let's dive deep into our data set and plot the change of the sold count value over time.
+We can say that the data itself has no obvious exponential trend, thus claiming the fact that the data set can be decomposed with an additive approach can be correct. The trend of the data set shows small increases in the first half, and there's a peak point at the mid May 2021, and the remaining part is based on a decreasing trend. Furthermore, it is time to elaborate the correlation plot of the data set.
+
+```{r}
+plotting(data_32939029, "Şarj Edilebilir Diş Fırçası", "blue")
+```
+
+Behold, the correlation plot of the data set "Şarj Edilebilir Diş Fırçası". This plot shows that our sold count values are highly correlated with the basket count values. It is not faulty to state that the price of "Şarj Edilebilir Diş Fırçası" is not that low and if one aims to have one, they mostly add the product in their shopping basket in Trendyol. Hence, we would like to select basket count as our external regressor to create our model.
+
+```{r, warning = FALSE, message = FALSE}
+cor_plot(data_32939029, "Şarj Edilebilir Diş Fırçası")
+```
+
+Then, we're here to instantiate our SARIMA model with the decided extended regressor, "basket count".
+
+```{r, eval = FALSE}
+forecast_32939029 = forecast_func(data_32939029, cbind(data_32939029$basket_count))
+```
+
+After the model training and constructing the predictions, let's plot our findings with their actual values. As usual, we've nearly have an exact structure of the actual values as our predictions, but they are shifted either one day or two days. Aside from that, we've predicted the trajectory and trend of the data set and come up with the appropriate predictions. We're happy with the output, but it would be wise for one to compare their output with the metrics of the constructed model.
+
+```{r}
+load("forecast_32939029.RData")
+plotting(forecast_32939029, "Şarj Edilebilir Diş Fırçası", "blue", num = 2)
+```
+
+Our model metrics are shown below. WMAPE is the metric that we consider as the most important, thus having 0.44 as the WMAPE result is not that great. However, it is better than the most, thus we are satisfied with our findings and our model.
+
+```{r}
+accu(forecast_32939029$sold_count, forecast_32939029$prediction)
+```
+
+
+
+### 8) Mont 
+
+After compiling necessary manipulations of data such as filling misleading values, shifting the columns for the data added later etc., moving to the deeper analysis for predictions would be wise. For further analysis, let us have a look at the data for the "coat" which has a product id "48740784".
+
+```{r, warning=FALSE, message=FALSE}
+data_48740784 <- data_manip("48740784", normal = F) #for head(data) function only.
+head(data_48740784)
+data_48740784 <- data_manip("48740784", normal = T)
+```
+
+To provide a forecast model, observing data over time is very useful.
+
+```{r}
+plotting(data_48740784, "Mont", "orange")
+```
+
+Here, each column of the data is normalized since working with normalized data is better to minimize their weighted correlation.
+As you can observe, for some seasons such as Summer of 2020, January of 2021 or Spring of 2021 there are not any sales at all, which leads us there may be a kind of a seasonality or there may be a different effects such as price. To understand what affects our daily sales, it is necessary that to control over correlations between different properties.
+It is predictable that the data is correlated with other columns that are provided by "trendyol". In order to become a good prediction model, the model needs some regressors to predict next sales. To select proper regressor, usage of correlation matrix would be wise. 
+
+```{r}
+cor_plot(data_48740784, "Mont")
+```
+
+From this table, it is reachable that "sold_count" is mostly correlated with "basket_count" and the second mostly with "visit_count". However, "basket_count" and "visit_count" are highly correlated which warns us to use not both of them. As a result, the model will only use "basket_count" column to predict further sales.  
+To understand the correlation, it is obvious that to complete a sale, the customer has to add the product to the basket.
+
+```{r, eval = FALSE}
+forecast_48740784 = forecast_func(data_48740784, cbind(data_48740784$basket_count))
+```
+
+```{r}
+load("forecast_48740784.RData")
+plotting(forecast_48740784, "Mont", "orange", num = 2)
+```
+
+The forecast model seems predicted sales fair average. It can be said that trend is correct but there are some different oscillations from model predictions.  
+For a clear last step let us check our "accu" function which controls accuracy of prediction model.
+
+```{r}
+accu(forecast_48740784$sold_count, forecast_48740784$prediction)
+```
+
+For a prediction model that predicts different numbers between 0 and 6, accuracy of our model seems fair enough, which leads us to calculations of the other products.
+
+
+
+
+
+
+### 9) Tayt   
+
+After compiling necessary manipulations of data such as filling values, shifting the columns for the data added later etc., moving to the deeper analysis for predictions would be wise. For further analysis, let us have a look at the data for the "sports tights" which has a product id "31515569".  
+
+
+```{r, warning=FALSE, message=FALSE}
+data_31515569 <- data_manip("31515569", normal = T)
+head(data_31515569)
+```
+
+To provide a forecast model, observing data over time is very useful.
+
+```{r}
+plotting(data_31515569, "Tayt", "purple")
+```
+
+Here, each column of the data is normalized since working with normalized data is better to minimize their weighted correlation.  
+From the plot it can be observed that there are much variation in the series. The sales follows a general trend over time. However there are various instant increases in the sales like the one in the "Black Friday". The reason behind that could be a decrease in price. The following calculations will helps us to reach whether this assumption is correct.
+In order to become a good prediction model, the model needs some regressors to predict next sales. The regressors are reachable from correlations matrix. 
+
+```{r}
+cor_plot(data_31515569, "Tayt")
+```
+
+From this correlation matrix, it is reachable that "sold_count" is mostly correlated with "category_sold", which is completely different from previous products. Also, the most second correlated column with "sold_count" is "category_visits". However, "category_sold" and "category_visits" are highly correlated which warns us to use not both of them.  
+For this product, there is another important correlation. The correlation between price and sold_count is quite high relative to previous ones. Hence, the "price" column is also added to the regressors with column named "category_sold". As a result, the model will use "category_sold" and "price" columns to predict further sales. 
+
+
+```{r, eval = FALSE}
+forecast_31515569 = forecast_func(data_31515569, cbind(data_31515569$category_sold,data_31515569$price))
+```
+
+To understand the property of our forecasting model, let R plot the actual and forecasted values.
+
+```{r}
+load("forecast_31515569.RData")
+plotting(forecast_31515569, "Tayt", "purple", num = 2)
+```
+
+The forecast are seems good enough, also the trend is fitted again although there is a small delay between the predictions and actual values.  
+For a clear last step let us check our "accu" function which controls accuracy of prediction model.
+
+
+```{r}
+accu(forecast_31515569$sold_count, forecast_31515569$prediction)
+```
+
+For a product that has a sold_count between approximately 0 and 10500, it is hard to catch a significantly accurate model since the oscilliations are not seasonal. For this product, maybe usage of a binary variable that will control if it is special day such as "Black Friday" for special discounts would be wise.
+
+## Conclusion
+
+- The prediction for the products having high ratio of standard deviation to mean of the number of sales is quite challenging, especially for the seasonal products, such as "Bikini", and "Mont".
+
+- The brands of "Bebek Islak Mendil" and "Yüz Temizleyici" (Sleepy and La Roche Posay) could be the dominant brands of the market because the highest correlation is observed between the number of total sales and the number of sales in the same category.
+
+- Prices of "Bluetooth Kulaklık" and "Tayt" are significantly correlated with the number of total sales in a negative way. The other products have shown approximately -0.1 correlation, but these two products have -0.5 and -0.3 correlation respectively. These outcomes indicate that clients who seek to buy these types of products are mostly concerned with the prices of the products, rather than the innate features.
+
+- Only in the product, "Bebek Islak Mendil", we have observed multiple decompositions with different optionalities. Even if all decompositions of "Bebek Islak Mendil" should set to be "multiplicative", their trend and exponential rates are different. That's why our generalized additive decomposition technique is not suitable enough, and we can see the results of WMAPE of this product.
+
+- From the homework, we have realized that the number of sales occurred in the last day is highly effective for tomorrow's sales. This result can be observed from the plots. The predictions are very close to the the number of sales in the last day or the day before the last day. 
+
+- SARIMA models have shown more precise results than regular ARIMA models since the variables that we have used to forecast the sold count are more seasonal than we have anticipated.
+
+- The given data set has been corrupted more than the auto-regenerative limit, therefore excessive feature engineering was required and as a result, we have fabricated our data set. It helped us overcome many issues regarding its structure, yet we have lost the reality of the data set.
+
+- Owing to all these reasons, it can be stated that aggregating the daily sales of only based on the past data, some of the other columns of the data might be misleading or inadequate in some ways.
+
+- Several features of the product are naturally highly correlated. Thus, linear independency inside the data set cannot be satisfied. Therefore, the very self of the data set of a product cannot enhance the prediction results due to the realization of the fact that any possible linear model for prediction would not function properly.
+
+
+
+## Future Work
+
+- The dependency between features would be reduced. Therefore, multiple regressors would be added into the model in order to make better predictions.
+
+- A GAM model would be constructed by using the residuals of SARIMA models because there may be non-extracted information that resides in the residuals of the SARIMA Extended models and GAM with non-linear formulas can extract and utilize it to improve the predictions.
+
+- Time-related variables would also be used more efficiently, such as discount periods, holidays etc. Discount amounts between days are used, but it seems not sufficient.
+
+- Since external data sets are allowed to improve our model, we can integrate the search results of “discount”, “indirim”, “trendyol”, “trendyol indirim”, and “trendyol discount” from Google Trends data to determine the days of discounts and the lag between the search results of these terms and the actual discount intervals.
+
+- R language is a valuable tool for analyzing the data set and forecasting regarding the analysis. However, feature engineering and other utility actions can be done by a Python script in a more development friendly way. Therefore, this project can be implemented in a more clear way by constructing a merged structure with both R and Python.
+
+- In order to improve the effects of seasonality factor, we should have had at least 3 or 4 years of data for any product to come up with a more integrated solution. 
+
+
+
+
+
+
+
+
