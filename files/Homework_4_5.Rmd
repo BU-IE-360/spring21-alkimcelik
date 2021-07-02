@@ -1,0 +1,1510 @@
+---
+title: "Homework 4-5"
+author: "Alkım Can Çelik - Yusuf Uluçoban - Özgürcan Öztaş"
+date: "26 06 2021"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    code_folding: hide
+---
+
+Necessary functions and libraries are imported. 
+
+```{r, warning=FALSE, message=FALSE}
+library(dplyr)
+library(tidyr)
+library(data.table)
+library(lubridate)
+library(ggplot2)
+library(GGally)
+library(urca)
+library(forecast)
+library(rjson)
+library(zoo)
+library(caret)
+library(ggcorrplot)
+
+read_data <- function(path){
+  setwd(path)
+  data <- read.csv("ProjectRawData.csv")
+  data$event_date = ymd(data$event_date)
+  data <- data[!(is.na(data$event_date)) | !(is.na(data$product_content_id)),]
+  data <- data.table(data)
+  
+  result <- fromJSON(file = "indir.json")
+  table <- data.frame()
+  for (i in 1:length(result)){
+    a <- as.data.frame(result[i])
+    table <- rbind(table, a)
+  }
+  
+  table <- data.table(table[,c(2,3,1,4,5,7,6,8,10,12,13,9,11)])
+  table$event_date <- as.Date(table$event_date)
+  table <- table[event_date>="2021-05-29",]
+  new_table_len <- nrow(table)
+  current_data <- rbind(table,data)
+  data_corrected <- current_data[1:new_table_len,c(1:7,12,8:11,13)]
+  colnames(data_corrected) <- colnames(current_data)
+  data_deficit <- current_data[-(1:new_table_len),]
+  data_corrected <- data.table(rbind(data_corrected, data_deficit))
+  data_corrected[price<0,price:=NA]
+  return(data_corrected)
+}
+
+
+data <- read_data("/Users/ozgurcan/Archive/PDFLibrary/IE360/IE360ClassProject")
+
+visit_count_calc <- function(data_prod){
+  data_prod <- data_prod[,var:=basket_count-mean(basket_count)]
+  train <- data_prod[data_prod$event_date>"2021-01-29"]
+  test <- data_prod[data_prod$event_date<="2021-01-29" & data_prod$event_date>"2020-12-10"]
+  model <- lm(visit_count~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$visit_count <- round(pred)
+  
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-12-10"]
+  test <- data_prod[data_prod$event_date<="2020-12-10" & data_prod$event_date>"2020-10-10"]
+  model <- lm(visit_count~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$visit_count <- round(pred)
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-10-10"]
+  test <- data_prod[data_prod$event_date<="2020-10-10" & data_prod$event_date>"2020-08-01"]
+  model <- lm(visit_count~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$visit_count <- round(pred)
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-08-01"]
+  test <- data_prod[data_prod$event_date<="2020-08-01" & data_prod$event_date>="2020-05-25"]
+  model <- lm(visit_count~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$visit_count <- round(pred)
+  test_train <- rbind(train,test)
+  
+  data_prod$visit_count <- test_train$visit_count
+  data_prod$visit_count <- ifelse(data_prod$visit_count <= 0,0,data_prod$visit_count)
+  return(data_prod)
+}
+
+favored_count_calc <- function(data_prod){
+  data_prod <- data_prod[,var:=basket_count-mean(basket_count)]
+  train <- data_prod[data_prod$event_date>"2021-01-29"]
+  test <- data_prod[data_prod$event_date<="2021-01-29" & data_prod$event_date>"2020-12-10"]
+  model <- lm(favored_count~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$favored_count <- round(pred)
+  
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-12-10"]
+  test <- data_prod[data_prod$event_date<="2020-12-10" & data_prod$event_date>"2020-10-10"]
+  model <- lm(favored_count~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$favored_count <- round(pred)
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-10-10"]
+  test <- data_prod[data_prod$event_date<="2020-10-10" & data_prod$event_date>"2020-08-01"]
+  model <- lm(favored_count~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$favored_count <- round(pred)
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-08-01"]
+  test <- data_prod[data_prod$event_date<="2020-08-01" & data_prod$event_date>="2020-05-25"]
+  model <- lm(favored_count~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$favored_count <- round(pred)
+  test_train <- rbind(train,test)
+  
+  data_prod$favored_count <- test_train$favored_count
+  data_prod$favored_count <- ifelse(data_prod$favored_count <= 0,0,data_prod$favored_count)
+  return(data_prod)
+}
+
+category_basket_calc <- function(data_prod){
+  data_prod <- data_prod[,var:=category_favored-mean(category_favored)]
+  train <- data_prod[data_prod$event_date>"2021-01-29"]
+  test <- data_prod[data_prod$event_date<="2021-01-29" & data_prod$event_date>"2020-12-10"]
+  model <- lm(category_basket~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$category_basket <- round(pred)
+  
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-12-10"]
+  test <- data_prod[data_prod$event_date<="2020-12-10" & data_prod$event_date>"2020-10-10"]
+  model <- lm(category_basket~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$category_basket <- round(pred)
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-10-10"]
+  test <- data_prod[data_prod$event_date<="2020-10-10" & data_prod$event_date>"2020-08-01"]
+  model <- lm(category_basket~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$category_basket <- round(pred)
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-08-01"]
+  test <- data_prod[data_prod$event_date<="2020-08-01" & data_prod$event_date>="2020-05-25"]
+  model <- lm(category_basket~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$category_basket <- round(pred)
+  test_train <- rbind(train,test)
+  
+  data_prod$category_basket <- test_train$category_basket
+  return(data_prod)
+}
+
+category_brand_sold_calc <- function(data_prod){
+  data_prod <- data_prod[,var:=category_sold-mean(category_sold)]
+  train <- data_prod[data_prod$event_date>"2021-01-29"]
+  test <- data_prod[data_prod$event_date<="2021-01-29" & data_prod$event_date>"2020-12-10"]
+  model <- lm(category_brand_sold~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$category_brand_sold <- round(pred)
+  
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-12-10"]
+  test <- data_prod[data_prod$event_date<="2020-12-10" & data_prod$event_date>"2020-10-10"]
+  model <- lm(category_brand_sold~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$category_brand_sold <- round(pred)
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-10-10"]
+  test <- data_prod[data_prod$event_date<="2020-10-10" & data_prod$event_date>"2020-08-01"]
+  model <- lm(category_brand_sold~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$category_brand_sold <- round(pred)
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-08-01"]
+  test <- data_prod[data_prod$event_date<="2020-08-01" & data_prod$event_date>="2020-05-25"]
+  model <- lm(category_brand_sold~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$category_brand_sold <- round(pred)
+  test_train <- rbind(train,test)
+  
+  data_prod$category_brand_sold <- test_train$category_brand_sold
+  return(data_prod)
+}
+
+ty_visits_calc <- function(data_prod){
+  data_prod <- data_prod[,var:=category_sold-mean(category_sold)]
+  train <- data_prod[data_prod$event_date>"2021-01-29"]
+  test <- data_prod[data_prod$event_date<="2021-01-29" & data_prod$event_date>"2020-12-10"]
+  model <- lm(ty_visits~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$ty_visits <- round(pred)
+  
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-12-10"]
+  test <- data_prod[data_prod$event_date<="2020-12-10" & data_prod$event_date>"2020-10-10"]
+  model <- lm(ty_visits~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$ty_visits <- round(pred)
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-10-10"]
+  test <- data_prod[data_prod$event_date<="2020-10-10" & data_prod$event_date>"2020-08-01"]
+  model <- lm(ty_visits~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$ty_visits <- round(pred)
+  test_train <- rbind(train,test)
+  
+  train <- test_train[test_train$event_date>"2020-08-01"]
+  test <- data_prod[data_prod$event_date<="2020-08-01" & data_prod$event_date>="2020-05-25"]
+  model <- lm(ty_visits~var, train)
+  cv <- as.data.frame(test$var)
+  colnames(cv) <- "var"
+  pred <- predict(model,cv)
+  test$ty_visits <- round(pred)
+  test_train <- rbind(train,test)
+  
+  data_prod$ty_visits <- test_train$ty_visits
+  return(data_prod)
+}
+
+data_manip <- function(product_id, normal = T, discount = T, shift = T){
+  
+  data_prod = data[data$product_content_id == product_id,]
+  
+  data_prod <- visit_count_calc(data_prod)
+  
+  data_prod <- favored_count_calc(data_prod)
+  
+  data_prod <- category_basket_calc(data_prod)
+  
+  data_prod <- category_brand_sold_calc(data_prod)
+  
+  data_prod <- ty_visits_calc(data_prod)
+  
+  data_prod <- data_prod %>% fill(price, .direction = "up")
+  
+  data_prod <- data_prod %>% fill(price, .direction = "down")
+  
+  data_prod$product_content_id <- NULL
+  
+  data_prod$var <- NULL
+  
+  data_prod <- arrange(data_prod, event_date)
+  
+  if(discount){
+    data_prod[,lag_1:=shift(price)]
+    
+    data_prod[,discount := (lag_1-price)]
+    
+    data_prod$discount <- na.fill(data_prod$discount, 0)
+  }
+  
+  if(normal){
+    preproc <- preProcess(data_prod[,c(4:12)], method=c("center", "scale"))
+    
+    new_cols <- predict(preproc, data_prod[,c(4:12)])
+    
+    data_prod[,c(4:12)] <- new_cols
+  }
+  
+  data_prod$lag_1 <- NULL
+  
+  return(data_prod)
+}
+
+accu=function(actual,forecast){
+  n=length(actual)
+  error=actual-forecast
+  mean=mean(actual)
+  sd=sd(actual)
+  CV=sd/mean
+  FBias=sum(error)/sum(actual)
+  MAPE=sum(abs(error/actual))/n
+  RMSE=sqrt(sum(error^2)/n)
+  MAD=sum(abs(error))/n
+  MADP=sum(abs(error))/sum(abs(actual))
+  WMAPE=MAD/mean
+  l=data.frame(n,mean,sd,CV,FBias,MAPE,RMSE,MAD,MADP,WMAPE)
+  return(l)
+}
+
+forecast_with_lr=function(fmla, data,forecast_data){
+  fitted_lm=lm(as.formula(fmla),data)
+  forecasted=predict(fitted_lm,forecast_data)
+  return(list(forecast=as.numeric(forecasted),model=fitted_lm))
+}
+
+forecast_with_arima=function(data,forecast_ahead,target_name='sold_count',
+                             is_seasonal=F,is_stepwise=F,is_trace=T,is_approx=F, xreg1 = NULL){
+  command_string=sprintf('input_series=data$%s',target_name)
+  print(command_string)
+  eval(parse(text=command_string))
+  
+  fitted=auto.arima(input_series,seasonal=is_seasonal,
+                    trace=is_trace,stepwise=is_stepwise,approximation=is_approx, xreg = xreg1)
+  
+  forecasted=predict(fitted,n.ahead=forecast_ahead, newxreg = tail(xreg1,forecast_ahead))$pred
+  return(list(forecast=forecasted,model=fitted))
+}
+
+forecast_with_arima_extended=function(data,forecast_ahead,target_name='sold_count',
+                                      is_seasonal=F,is_stepwise=F,is_trace=T,is_approx=F, 
+                                      seasonality_period=NULL,fitted_model=NULL, xreg1 = NULL, decomposed = NULL){
+  
+  if(is_seasonal & !is.null(seasonality_period)){
+    command_string=sprintf('input_series=ts(data$%s,freq=%d)',target_name,seasonality_period)
+    
+  } else {
+    command_string=sprintf('input_series=data$%s',target_name)
+  }
+  print(command_string)
+  eval(parse(text=command_string))
+  
+  if(!is.null(decomposed)){
+    input_series_decomposed=decompose(input_series,type = "additive")
+    random <- input_series_decomposed$random
+  }
+  
+  if(is.null(fitted_model)){
+    if(!is.null(decomposed)){
+      fitted=auto.arima(random,seasonal=is_seasonal,
+                        trace=is_trace,stepwise=is_stepwise,approximation=is_approx, xreg = xreg1)
+    }
+    else{
+      fitted=auto.arima(input_series,seasonal=is_seasonal,
+                        trace=is_trace,stepwise=is_stepwise,approximation=is_approx, xreg = xreg1)
+    }
+  } else {
+    fitted=Arima(random, model=fitted_model)
+  }
+  
+  if(is.null(xreg1)){
+    forecasted=predict(fitted,n.ahead=forecast_ahead)$pred
+    if(!is.null(decomposed)){
+      forecasted = forecasted + input_series_decomposed$seasonal[(length(ts) %% 7 +1) : (length(ts) %% 7 + forecast_ahead)] + tail(input_series_decomposed$trend[!is.na(input_series_decomposed$trend)],1)
+    }
+  }
+  else{
+    forecasted=predict(fitted,n.ahead=forecast_ahead, newxreg = tail(xreg1,forecast_ahead))$pred
+    if(!is.null(decomposed)){
+      forecasted = forecasted + input_series_decomposed$seasonal[(length(ts) %% 7 +1) : (length(ts) %% 7 + forecast_ahead)] + tail(input_series_decomposed$trend[!is.na(input_series_decomposed$trend)],1)
+    }
+  }
+  
+  return(list(forecast=forecasted,model=fitted))
+}
+
+decomp <- function(data, frequ, approach){
+  if(frequ==7){
+    ts = ts(data$sold_count, freq=frequ, start = c(2020,01,25))
+    decomposed <- decompose(ts, type = "additive") 
+    plot(decomposed)    
+    print(summary(ur.kpss(decomposed$random)))
+    return(decomposed$random)
+  }
+  else if(frequ == 52){
+    data[,week:=week(event_date)]
+    data[,year:=year(event_date)]
+    weekly_data <- data[,list(mean_sales=mean(sold_count)), by=list(week, year)]
+    weekly_data[, year_week := paste0(year, "-",week)]
+    ts = ts(weekly_data$mean_sales, freq=frequ, start = c(2020,21))
+    decomposed <- decompose(ts, type = "additive") 
+    plot(decomposed)
+    ur.kpss(decomposed$random)
+    return(decomposed$random)
+  }
+  else if(frequ ==  12){
+    data[,month:=month(event_date)]
+    data[,year:=year(event_date)]
+    monthly_data <- data[,list(mean_sales=mean(sold_count)), by=list(month, year)]
+    monthly_data[, year_month := paste0(year, "-",month)]
+    ts = ts(monthly_data$mean_sales, freq=frequ, start = c(2020,05))
+    decomposed <- decompose(ts, type = "additive") 
+    plot(decomposed)
+    ur.kpss(decomposed$random)
+    return(decomposed$random)
+  }
+}
+
+cor_plot <- function(data, product_name){
+  head(data)
+  corr <- round(cor(data[,c(2:13)]), 2)
+  
+  ggcorrplot(corr, hc.order = TRUE, 
+             type = "lower", 
+             lab = TRUE, 
+             lab_size = 3, 
+             method="circle", 
+             colors = c("tomato2", "white", "springgreen3"), 
+             title=paste0("Correlogram of ", product_name), 
+             ggtheme=theme_bw)
+}
+
+forecast_func <- function(data,ar_order, reg_matrix){
+  test <- data[(length(data)-6):length(data)]
+  results=vector('list',7)
+  for(i in 1:7){
+    past_data=data[1:(length(data)-9+i)]
+    ts = ts(past_data, freq=7, start = c(2020,01,25))
+    decomposed <- decompose(ts, type = "additive") 
+    reg_matrix_past <- reg_matrix[1:(length(data)-9+i),1:ncol(reg_matrix)]
+    reg_matrix_forecast = t(reg_matrix[length(data)-7+i, 1:ncol(reg_matrix)])
+    forecast_data=data.table(data[length(data)-7+i])
+    model <- arima(past_data, order = ar_order, xreg = reg_matrix_past)
+    forecasted=predict(model, n.ahead = 2, newxreg = reg_matrix_forecast)$pred[2] + decomposed$seasonal[i] + tail(decomposed$trend[!is.na(decomposed$trend)],1)
+    forecast_data[,prediction:=forecasted]
+    results[[i]]=forecast_data
+  }
+  results <- rbindlist(results)
+  colnames(results) <- c("Actual", "Prediction")
+  return(results)
+}
+
+plotting <- function(data, product_name, col, num = 1){
+  if(num == 1){
+  ggplot(data) + geom_line(aes(x = event_date, y = sold_count), color = col) + 
+    labs(x="Date", y="The Number of Sold", title = paste0("Sales(", product_name,")")) +
+    theme_minimal()
+  }
+  else{
+    ggplot(data) + geom_line(aes(x = event_date, y = Actual, color = "Actual")) + 
+      geom_line(aes(x=event_date, y = Prediction, color = "Prediction" ))+
+      labs(x="Date", y="Sales", title = paste0("Comparison of Sales and Predictions for ", product_name)) +
+      theme_minimal()
+  }
+}
+
+accu=function(actual,forecast){
+  n=length(actual)
+  error=actual-forecast
+  mean=mean(actual)
+  sd=sd(actual)
+  CV=sd/mean
+  FBias=sum(error)/sum(actual)
+  MAPE=sum(abs(error/actual))/n
+  RMSE=sqrt(sum(error^2)/n)
+  MAD=sum(abs(error))/n
+  MADP=sum(abs(error))/sum(abs(actual))
+  WMAPE=MAD/mean
+  l=data.frame(n,mean,sd,CV,FBias,MAPE,RMSE,MAD,MADP,WMAPE)
+  return(l)
+}
+```
+
+## 1) Yüz Temizleyici
+
+### Task 1
+
+The data is imported.
+
+```{r, warning=FALSE, message=FALSE}
+data_85004 <- data_manip("85004", normal = F)
+head(data_85004)
+```
+
+Firstly, daily decomposition will be applied. When we check the project report, the variance of sales does not increase throughout the time. Therefore, type of decomposition should be additive.
+
+```{r}
+decomp_85004 <- decomp(data_85004, 7)
+```
+
+The results from unit root test belong to the random component of decomposition. Since its significance value is lower than the significance levels, the null hypothesis is failed to be rejected. The null hypothesis is that the data is stationary. 
+
+If the plot is analyzed, it can be seen that there is a slight upward trend, and there are some outliers, probably occurring in special days.
+
+Weekly and monthly decomposition cannot be applied because the data do not include sales happened in 2 years. There are less than two periods. Therefore, this type of decomposition brings an error message.
+
+Now, the autocorrelation and partial autocorrelation graphs will be analyzed.
+
+```{r}
+acf(decomp_85004, na.action = na.pass)
+pacf(decomp_85004, na.action = na.pass)
+```
+
+There is a significant autocorrelation in lag-1 and exponential decay can be seen in this graph. In partial autocorrelation graph, there is a sudden decrease after lag-1, and the other lags have negative autocorrelation. Seasonal autocorrelation is not observed in these graphs. 
+
+### Task 2
+
+According to the plots above, ARIMA (1,0,0) can be applied as a baseline model. 
+
+```{r}
+model1 <- arima(decomp_85004, order = c(1,0,0))
+summary(model1)
+```
+
+Since lag-3 variable has a significant autocorrelation, ARIMA (3,0,0) can also be tried.
+
+```{r}
+model2 <- arima(decomp_85004, order = c(3,0,0))
+summary(model2)
+```
+
+Lastly, lag-4 variable has also significant autocorrelation, and it is the last variable being significant. The model is below.
+
+```{r}
+model3 <- arima(decomp_85004, order = c(4,0,0))
+summary(model3)
+```
+
+The lowest AIC value belongs to ARIMA (4,0,0) model. It can be seen that AIC value of ARIMA (3,0,0) and AIC value of ARIMA(4,0,0) are very close to each other. Adding more variables would increase the complexity, which is not intended. Therefore, this model can be chosen as the last model. 
+
+It is interesting that the sales occurred three days ago has a significant negative effect on the current sales. 
+
+### Task 3
+
+In the project, most variables (basket_count, favored_count, category_sold) are not independent. Therefore, using multiple regressors on the model is not appropriate. It will arise multicollinearity problem.
+
+Now, the correlation matrix will be observed. 
+
+```{r}
+cor_plot(data_85004, "Yüz Temizleyici")
+```
+
+The number of sales have high correlation with category_sold, basket_count, and category_visit. Since the features are scaled differently, they should be normalized.
+
+### Task 4
+
+```{r, warning=FALSE, message=FALSE}
+data_85004_norm <- data_manip("85004", normal = T)
+model4 <- arima(decomp_85004, order = c(4,0,0), xreg = cbind(data_85004_norm$category_sold))
+summary(model4)
+```
+
+It can be said that AIC value decreases, which is preferred. 
+
+Now, basket_count will be added, instead of category_sold.
+
+```{r}
+model5 <- arima(decomp_85004, order = c(4,0,0), xreg = cbind(data_85004_norm$basket_count))
+summary(model5)
+```
+
+It has higher AIC value, compared to the model with category_sold. Therefore, it will not be chosen as final model. 
+
+Now, lastly, category_visits will be used as a regressor.
+
+```{r}
+model6 <- arima(decomp_85004, order = c(4,0,0), xreg = cbind(data_85004_norm$category_visits))
+summary(model6)
+```
+
+This model has a lower AIC value compared to the previous model, but the lowest AIC value belongs to the first model, with the number of sold products in the same category. Therefore, model with category_sold will be used as a final model.
+
+Now, forecasts for the last week will be made.
+
+```{r}
+comparison_85004 <- forecast_func(data = data_85004$sold_count, ar_order = c(4,0,0), reg_matrix = cbind(data_85004_norm$category_sold))
+comparison_85004 <- data.table(cbind(data_85004$event_date[(nrow(data_85004)-6):nrow(data_85004)], comparison_85004))
+colnames(comparison_85004) <- c("event_date", "Actual", "Prediction")
+plotting(comparison_85004,product_name = "Yüz Temizleyici", col = "",num =2)
+```
+
+It is obvious that the predictions are always larger than the actual sales. The reason may be the sales in January are very high and the number of sales decreases in the last month. If the seasonal term was added, the model would perform better, like in project. 
+
+The error rates are below.
+
+```{r}
+accu(comparison_85004$Actual, comparison_85004$Prediction)
+```
+
+As expected, its WMAPE is very high. Our model does not perform well. The reason behind is mentioned above. Unlike the project, there is no seasonal component.
+
+## 2) Bluetooth Kulaklık
+
+### Task 1
+
+The data is imported.
+
+```{r, warning=FALSE, message=FALSE}
+data_6676673 <- data_manip("6676673", normal = F)
+head(data_6676673)
+```
+
+The daily decomposition is made below.
+
+```{r}
+decomp_6676673 <- decomp(data_6676673, 7)
+```
+
+Since the significance value is lower than the significance levels, the null hypothesis is failed to be rejected. The null hypothesis is that the data is stationary. 
+
+When the plot is analyzed, it can be realized that there is a decreasing trend at the last days. However, in general, there is no obvious trend. The sales fluctuate a lot.
+
+Weekly and monthly decomposition cannot be applied because the data do not include sales happened in 2 years. There are less than two periods. Therefore, this type of decomposition brings an error message.
+
+Now, the autocorrelation and partial autocorrelation graphs will be interpretted.
+
+```{r}
+acf(decomp_6676673, na.action = na.pass)
+pacf(decomp_6676673, na.action = na.pass)
+```
+
+There is a significant autocorrelation in lag-1 and exponential decay can be seen in this graph. In partial autocorrelation graph, there is a sudden decrease after lag-1, and the other lags have negative autocorrelation. Seasonal autocorrelation is not observed in these graphs. 
+
+### Task 2
+
+According to the plots above, ARIMA (1,0,0) can be applied as a baseline model. 
+
+```{r}
+model1 <- arima(decomp_6676673, order = c(1,0,0))
+summary(model1)
+```
+
+Since lag-2 variable has a significant autocorrelation, ARIMA (2,0,0) can also be tried.
+
+```{r}
+model2 <- arima(decomp_6676673, order = c(2,0,0))
+summary(model2)
+```
+
+Lastly, lag-3 variable has also significant autocorrelation, and it is the last variable being significant. Its partial autocorrelation is very significant. The model is below.
+
+```{r}
+model3 <- arima(decomp_6676673, order = c(3,0,0))
+summary(model3)
+```
+
+The last model, ARIMA (3,0,0) has the lowest AIC value. Adding more variables would increase the complexity and the predictions cannot improve suddenly. Therefore, this model can be chosen as the last model. 
+
+### Task 3
+
+In the project, most variables (basket_count, favored_count, category_sold) are not independent. Therefore, using multiple regressors on the model is not appropriate. It will arise multicollinearity problem.
+
+Now, the correlation matrix will be observed. 
+
+```{r}
+cor_plot(data_6676673, "Bluetooth Kulaklık")
+```
+
+The number of sales have high correlation with visit_count, basket_count, and category_sold. Since the features are scaled differently, they should be normalized. In addition, price has a strong negative correlation with the number of sales. Therefore, it can be added into the model.
+
+### Task 4
+
+```{r, warning=FALSE, message=FALSE}
+data_6676673_norm <- data_manip("6676673", normal = T)
+model4 <- arima(decomp_6676673, order = c(3,0,0), xreg = cbind(data_6676673_norm$category_sold, data_6676673_norm$price))
+summary(model4)
+```
+
+AIC value of the last model is lower than the model without the regressor. It can be said that this model is superior.
+
+Now, basket_count will be added, instead of category_sold.
+
+```{r}
+model5 <- arima(decomp_6676673, order = c(3,0,0), xreg = cbind(data_6676673_norm$basket_count, data_6676673_norm$price))
+summary(model5)
+```
+
+It has lower AIC value, compared to the model with category_sold. This model is better.
+
+Now, lastly, visit_count will be used as a regressor.
+
+```{r}
+model6 <- arima(decomp_6676673, order = c(3,0,0), xreg = cbind(data_6676673_norm$visit_count, data_6676673_norm$price))
+summary(model6)
+```
+
+This model has a higher AIC value compared to the previous model. According to the results the model with basket_count will be used as a final model.
+
+Now, forecasts for the last week will be made.
+
+```{r, warning=FALSE, message=FALSE}
+comparison_6676673 <- forecast_func(data = data_6676673$sold_count, ar_order = c(3,0,0), reg_matrix = cbind(data_6676673_norm$basket_count, data_6676673_norm$price))
+comparison_6676673 <- data.table(cbind(data_6676673$event_date[(nrow(data_6676673)-6):nrow(data_6676673)], comparison_6676673))
+colnames(comparison_6676673) <- c("event_date", "Actual", "Prediction")
+plotting(comparison_6676673,product_name = "Bluetooth Kulaklık", col = "",num =2)
+```
+
+It is obvious that the predictions are always larger than the actual sales, like the other products. If the seasonal term was added, the model would perform better, like in project. In addition, the model is successful for the catching changes. When the actual sale decreases, the prediction also decreases, and vice versa. 
+
+The error rates are below.
+
+```{r}
+accu(comparison_6676673$Actual, comparison_6676673$Prediction)
+```
+
+As expected, its WMAPE is very high. Our model does not perform well. The reason behind is mentioned above. 
+
+## 3) Bikini Üstü (2)
+
+### Task 1
+
+The data is imported.
+
+```{r, warning=FALSE, message=FALSE}
+data_32737302 <- data_manip("32737302", normal = F)
+head(data_32737302)
+```
+
+The daily decomposition is made below.
+
+```{r}
+decomp_32737302 <- decomp(data_32737302, 7)
+```
+
+Since people tend to buy bikini during the Spring and Summer, the number of sales in Winter and Fall is almost zero. There is an upward trend after March 2021. 
+
+Now, their autocorrelation and partial autocorrelation plots will be observed.
+
+```{r}
+acf(decomp_32737302, na.action = na.pass)
+pacf(decomp_32737302, na.action = na.pass)
+```
+
+There is a significant autocorrelation in lag-1. In partial autocorrelation graph, there is a sudden decrease after lag-1, and the other lags have negative autocorrelation. Seasonal autocorrelation is not observed in these graphs. These graphs are very similar to the other products' autocorrelation and partial autocorrelation graphs. 
+
+### Task 2
+
+According to the plots above, ARIMA (1,0,0) can be applied as a baseline model. 
+
+```{r}
+model1 <- arima(decomp_32737302, order = c(1,0,0))
+summary(model1)
+```
+
+Since lag-2 variable has a significant autocorrelation, ARIMA (2,0,0) can also be tried.
+
+```{r}
+model2 <- arima(decomp_32737302, order = c(2,0,0))
+summary(model2)
+```
+
+Lastly, lag-3 variable has also significant autocorrelation, and it is the last variable being significant. Its partial autocorrelation is very significant. The model is below.
+
+```{r}
+model3 <- arima(decomp_32737302, order = c(3,0,0))
+summary(model3)
+```
+
+The last model, ARIMA (3,0,0) has the lowest AIC value. Adding more variables would increase the complexity and the predictions cannot improve suddenly. Therefore, this model can be chosen as the last model. 
+
+The effects of the sales occurred in 2 days ago and 3 days ago are almost same.
+
+### Task 3
+
+Now, the correlation matrix will be observed. 
+
+```{r}
+cor_plot(data_32737302, "Bikini Üstü (2)")
+```
+
+The number of sales have high correlation with visit_count, basket_count, and favored_count. Since the features are scaled differently, they should be normalized. 
+
+In general, the fashion products are favored before bought. People add some products into the favored list, then they choose whatever they want. Therefore, favored_count has a very strong correlation with the number of sales.
+
+Now, the models will be constructed by using these features one by one.
+
+### Task 4
+
+```{r, warning=FALSE, message=FALSE}
+data_32737302_norm <- data_manip("32737302", normal = T)
+model4 <- arima(decomp_32737302, order = c(3,0,0), xreg = cbind(data_32737302_norm$visit_count))
+summary(model4)
+```
+
+AIC value of the last model is slightly lower than the model without the regressor. It can be said that this model is superior.
+
+Now, basket_count will be added, instead of visit count.
+
+```{r}
+model5 <- arima(decomp_32737302, order = c(3,0,0), xreg = cbind(data_32737302_norm$basket_count))
+summary(model5)
+```
+
+It has slightly lower AIC value, compared to the model with category_sold. This model is better.
+
+Now, lastly, favored_count will be used as a regressor.
+
+```{r}
+model6 <- arima(decomp_32737302, order = c(3,0,0), xreg = cbind(data_32737302_norm$favored_count))
+summary(model6)
+```
+
+This model has a marginally higher AIC value compared to the previous model. According to the results the model with basket_count will be used as a final model.
+
+Now, forecasts for the last week will be made.
+
+```{r, warning=FALSE, message=FALSE}
+comparison_32737302 <- forecast_func(data = data_32737302$sold_count, ar_order = c(3,0,0), reg_matrix = cbind(data_32737302_norm$basket_count))
+comparison_32737302 <- data.table(cbind(data_32737302$event_date[(nrow(data_32737302)-6):nrow(data_32737302)], comparison_32737302))
+colnames(comparison_32737302) <- c("event_date", "Actual", "Prediction")
+plotting(comparison_32737302,product_name = "Bikini Üstü (2)", col = "",num =2)
+```
+
+It is obvious that the predictions are always larger than the actual sales, like the other products. In addition, the model is successful for the catching changes. When the actual sale decreases, the prediction also decreases, and vice versa. 
+
+The error rates are below.
+
+```{r}
+accu(comparison_32737302$Actual, comparison_32737302$Prediction)
+```
+
+As expected, its WMAPE is very high. Our model does not perform well. The reason behind is although the random component passes the unit root test, not having sales for months affects the model notoriously.
+
+## 4) Dik Süpürge
+
+### Task 1
+
+Let's examine the data of the "Dik Süpürge".
+
+```{r, warning=FALSE, message=FALSE}
+data_7061886 <- data_manip("7061886", normal = F)
+head(data_7061886)
+```
+As we can see below, data set has no significant level of increasing variance over time, thus decomposition should be done in an "additive" way.
+
+After the decomposition, let's check the KPSS test results for stationary. The test shows that the value is way less than the significance threshold, thus we fail to reject the null hypothesis, which is the stationary of the data.
+
+Also, if we try to decompose the data with a weekly and monthly perspective, we get an error since the dataset has no data that can support at least two periods. Therefore, we can only continue with the daily decomposition.
+
+Furthermore, let's analyze the ACF and PCF plots.
+
+```{r}
+decomp_7061886 <- decomp(data_7061886, 7)
+```
+As we can see, the ACF plot shows that there's an exponential decay. Also, PCF graph shows that lag-1 is significant and starting from lag-2, almost every lag is negative, and lag-3 has the highest significance in the negative domain. There's no seasonal features observed in these plots.
+
+```{r}
+acf(decomp_7061886, na.action = na.pass)
+pacf(decomp_7061886, na.action = na.pass)
+```
+
+### Task 2
+
+According the plots above, we should use an ARIMA model with c(1, 0, 0) to observe the outputs. After that, I've tried (2, 0, 0), (3, 0, 0), (4, 0, 0), and (5, 0, 0) to see the difference between the models. And after the 6th order, the model has no significant change thus I've selected my model as (6, 0, 0).
+
+```{r}
+model1 <- arima(decomp_7061886, order = c(1,0,0))
+summary(model1)
+```
+
+```{r}
+model2 <- arima(decomp_7061886, order = c(2,0,0))
+summary(model2)
+```
+
+```{r}
+model3 <- arima(decomp_7061886, order = c(3,0,0))
+summary(model3)
+```
+
+```{r}
+model4 <- arima(decomp_7061886, order = c(4,0,0))
+summary(model4)
+```
+
+```{r}
+model5 <- arima(decomp_7061886, order = c(5,0,0))
+summary(model5)
+```
+
+```{r}
+model6 <- arima(decomp_7061886, order = c(6,0,0))
+summary(model6)
+```
+
+By incrementing the order of the ARIMA model 1 at each time, we can see the change in the AIC value and after the (6, 0, 0) model, it was not efficient to increase the model complexity. Therefore, I'd like to use (6, 0, 0) in the future tasks.
+
+### Task 3
+
+```{r, warning=FALSE, message=FALSE}
+cor_plot(data_7061886, "Dik Süpürge")
+```
+
+In the project, most of the variables (basket_count, favored_count, category_sold) are not independent. Therefore, using multiple regressors on a model for this data set is not a suitable approach. It will arise multicollinearity problem.
+
+### Task 4
+
+By looking the correlation plot, I've selected 3 distinct features to feed my ARIMA models and category_sold was the one that has given the smallest AIC value. Thus, I've selected my regressor as category_sold.
+
+The block below tries visit_count as the regressor for the selected model in the previous task.
+
+```{r, warning=FALSE, message=FALSE}
+data_7061886_norm <- data_manip("7061886", normal = T)
+model7 <- arima(decomp_7061886, order = c(6,0,0), xreg = cbind(data_7061886_norm$visit_count))
+summary(model7)
+```
+
+The block below tries basket_count as the regressor for the selected model in the previous task.
+
+```{r}
+model8 <- arima(decomp_7061886, order = c(6,0,0), xreg = cbind(data_7061886_norm$basket_count))
+summary(model8)
+```
+
+The block below tries category_sold as the regressor for the selected model in the previous task.
+
+```{r}
+model9 <- arima(decomp_7061886, order = c(6,0,0), xreg = cbind(data_7061886_norm$category_sold))
+summary(model9)
+```
+
+As we can see, category_sold has given the smallest AIC, thus my predictive model is utilizing category_sold as its external regressor. And the block below creates a model with the given specifications, constructs the predictions and plot them to compare the results.
+
+The plot shows that predictions are way more than the actual values for quite a time, buy they get closer at the end of the predictions. This may occur due to the lack of seasonality in our data, since the data set has seasonal features, but we did not create a model with a seasonality option. Let's check the WMAPE value for gaining more insight.
+
+```{r, warning=FALSE, message=FALSE}
+comparison_7061886 <- forecast_func(data = data_7061886$sold_count, ar_order = c(6,0,0), reg_matrix = cbind(data_7061886_norm$category_sold))
+comparison_7061886 <- data.table(cbind(data_7061886$event_date[(nrow(data_7061886)-6):nrow(data_7061886)], comparison_7061886))
+colnames(comparison_7061886) <- c("event_date", "Actual", "Prediction") 
+plotting(comparison_7061886,product_name = "Dik Süpürge", col = "",num =2)
+```
+
+It is not a surprise for us to see that much WMAPE score, since our predictions are way off than the actual data. This also indicates that our model has functioned insufficiently and there's much work to be done in future to improve this model.
+
+```{r}
+accu(comparison_7061886$Actual, comparison_7061886$Prediction)
+```
+
+## 5) Bebek Islak Mendil
+
+### Task 1
+
+Let's examine the data of the "Bebek Islak Mendil".
+
+```{r, warning=FALSE, message=FALSE}
+data_4066298 <- data_manip("4066298", normal = F)
+head(data_4066298)
+```
+As we can see below, data set has no significant level of increasing variance over time except for several outlying exceptions, thus decomposition should be done in an "additive" way.
+
+After the decomposition, let's check the KPSS test results for stationary. The test shows that the value is way less than the significance threshold, thus we fail to reject the null hypothesis, which is the stationary of the data.
+
+Also, if we try to decompose the data with a weekly and monthly perspective, we get an error since the dataset has no data that can support at least two periods. Therefore, we can only continue with the daily decomposition.
+
+Furthermore, let's analyze the ACF and PCF plots.
+
+```{r}
+decomp_4066298 <- decomp(data_4066298, 7)
+```
+As we can see, the ACF plot shows that there's an exponential decay. Also, PCF graph shows that lag-1 is significant and starting from lag-2, almost every lag is negative, and lag-3 has the highest significance in the negative domain. There's no seasonal features observed in these plots.
+
+```{r}
+acf(decomp_4066298, na.action = na.pass)
+pacf(decomp_4066298, na.action = na.pass)
+```
+
+### Task 2
+
+According the plots above, we should use an ARIMA model with c(1, 0, 0) to observe the outputs. After that, I've tried (2, 0, 0), (3, 0, 0), (4, 0, 0) to see the difference between the models. And after the 4th order, it was not efficient to increase the model complexity. Therefore, I've selected my model as (4, 0, 0).
+
+```{r}
+model1 <- arima(decomp_4066298, order = c(1,0,0))
+summary(model1)
+```
+
+```{r}
+model2 <- arima(decomp_4066298, order = c(2,0,0))
+summary(model2)
+```
+
+```{r}
+model3 <- arima(decomp_4066298, order = c(3,0,0))
+summary(model3)
+```
+
+```{r}
+model4 <- arima(decomp_4066298, order = c(4,0,0))
+summary(model4)
+```
+
+By incrementing the order of the ARIMA model 1 at each time, we can see the change in the AIC value and after the (4, 0, 0) model, it was not efficient to increase the model complexity. Therefore, I'd like to use (4, 0, 0) in the future tasks.
+
+### Task 3
+
+```{r, warning=FALSE, message=FALSE}
+cor_plot(data_4066298, "Bebek Islak Mendil")
+```
+
+In the project, most of the variables (basket_count, favored_count, category_sold) are not independent. Therefore, using multiple regressors on a model for this data set is not a suitable approach. It will arise multicollinearity problem.
+
+### Task 4
+
+By looking the correlation plot, I've selected 3 distinct features to feed my ARIMA models and category_sold was the one that has given the smallest AIC value. Thus, I've selected my regressor as category_sold.
+
+The block below tries visit_count as the regressor for the selected model in the previous task.
+
+```{r, warning=FALSE, message=FALSE}
+data_4066298_norm <- data_manip("4066298", normal = T)
+model5 <- arima(decomp_4066298, order = c(4,0,0), xreg = cbind(data_4066298_norm$visit_count))
+summary(model5)
+```
+
+The block below tries basket_count as the regressor for the selected model in the previous task.
+
+```{r}
+model6 <- arima(decomp_4066298, order = c(4,0,0), xreg = cbind(data_4066298_norm$basket_count))
+summary(model6)
+```
+
+The block below tries category_sold as the regressor for the selected model in the previous task.
+
+```{r}
+model7 <- arima(decomp_4066298, order = c(4,0,0), xreg = cbind(data_4066298_norm$category_sold))
+summary(model7)
+```
+
+As we can see, category_sold has given the smallest AIC, thus my predictive model is utilizing category_sold as its external regressor. And the block below creates a model with the given specifications, constructs the predictions and plot them to compare the results.
+
+The plot shows that predictions are way more than the actual values. This may occur due to the lack of seasonality in our data, since the data set has seasonal features, but we did not create a model with a seasonality option. Let's check the WMAPE value for gaining more insight.
+
+```{r, warning=FALSE, message=FALSE}
+comparison_4066298 <- forecast_func(data = data_4066298$sold_count, ar_order = c(4,0,0), reg_matrix = cbind(data_4066298_norm$category_sold))
+comparison_4066298 <- data.table(cbind(data_4066298$event_date[(nrow(data_4066298)-6):nrow(data_4066298)], comparison_4066298))
+colnames(comparison_4066298) <- c("event_date", "Actual", "Prediction") 
+plotting(comparison_4066298,product_name = "Bebek Islak Mendil", col = "",num =2)
+```
+
+It is not a surprise for us to see that much WMAPE score, since our predictions are way off than the actual data. This also indicates that our model has functioned insufficiently and there's much work to be done in future to improve this model.
+
+```{r}
+accu(comparison_4066298$Actual, comparison_4066298$Prediction)
+```
+
+## 6) Şarj Edilebilir Diş Fırçası
+
+### Task 1
+
+Let's examine the data of the "Şarj Edilebilir Diş Fırçası".
+
+```{r, warning=FALSE, message=FALSE}
+data_32939029 <- data_manip("32939029", normal = F)
+head(data_32939029)
+```
+As we can see below, data set has no significant level of increasing variance over time, thus decomposition should be done in an "additive" way.
+
+After the decomposition, let's check the KPSS test results for stationary. The test shows that the value is way less than the significance threshold, thus we fail to reject the null hypothesis, which is the stationary of the data.
+
+Also, if we try to decompose the data with a weekly and monthly perspective, we get an error since the dataset has no data that can support at least two periods. Therefore, we can only continue with the daily decomposition.
+
+Furthermore, let's analyze the ACF and PCF plots.
+
+```{r}
+decomp_32939029 <- decomp(data_32939029, 7)
+```
+As we can see, the ACF plot shows that there's an exponential decay. Also, PCF graph shows that lag-1 is significant and starting from lag-2, almost every lag is negative, and lag-3 has the highest significance in the negative domain. There's no seasonal features observed in these plots.
+
+```{r}
+acf(decomp_32939029, na.action = na.pass)
+pacf(decomp_32939029, na.action = na.pass)
+```
+
+### Task 2
+
+According the plots above, we should use an ARIMA model with c(1, 0, 0) to observe the outputs. After that, I've tried (2, 0, 0), (3, 0, 0), (4, 0, 0) to see the difference between the models. And after the 4th order, it was not efficient to make the model more complex, thus I've selected (4, 0, 0) as my baseline model.
+
+```{r}
+model1 <- arima(decomp_32939029, order = c(1,0,0))
+summary(model1)
+```
+
+```{r}
+model2 <- arima(decomp_32939029, order = c(2,0,0))
+summary(model2)
+```
+
+```{r}
+model3 <- arima(decomp_32939029, order = c(3,0,0))
+summary(model3)
+```
+
+```{r}
+model4 <- arima(decomp_32939029, order = c(4,0,0))
+summary(model4)
+```
+
+By incrementing the order of the ARIMA model 1 at each time, we can see the change in the AIC value and after the (4, 0, 0) model, it was not efficient to increase the model complexity. Therefore, I'd like to use (4, 0, 0) in the future tasks.
+
+### Task 3
+
+```{r, warning=FALSE, message=FALSE}
+cor_plot(data_32939029, "Dik Süpürge")
+```
+
+In the project, most of the variables (basket_count, favored_count, category_sold) are not independent. Therefore, using multiple regressors on a model for this data set is not a suitable approach. It will arise multicollinearity problem.
+
+### Task 4
+
+By looking the correlation plot, I've selected 2 distinct features to feed my ARIMA models and category_sold was the one that has given the smallest AIC value. Thus, I've selected my regressor as category_sold.
+
+The block below tries visit_count as the regressor for the selected model in the previous task.
+
+```{r, warning=FALSE, message=FALSE}
+data_32939029_norm <- data_manip("32939029", normal = T)
+model5 <- arima(decomp_32939029, order = c(4,0,0), xreg = cbind(data_32939029_norm$visit_count))
+summary(model5)
+```
+
+The block below tries basket_count as the regressor for the selected model in the previous task.
+
+```{r}
+model6 <- arima(decomp_32939029, order = c(4,0,0), xreg = cbind(data_32939029_norm$basket_count))
+summary(model6)
+```
+
+As we can see, basket_count has given the smallest AIC, thus my predictive model is utilizing basket_count as its external regressor. And the block below creates a model with the given specifications, constructs the predictions and plot them to compare the results.
+
+The plot shows that predictions are way more than the actual values for quite a time, buy they get closer at the end of the predictions. This may occur due to the lack of seasonality in our data, since the data set has seasonal features, but we did not create a model with a seasonality option. Let's check the WMAPE value for gaining more insight.
+
+```{r, warning=FALSE, message=FALSE}
+comparison_32939029 <- forecast_func(data = data_32939029$sold_count, ar_order = c(4,0,0), reg_matrix = cbind(data_32939029_norm$basket_count))
+comparison_32939029 <- data.table(cbind(data_32939029$event_date[(nrow(data_32939029)-6):nrow(data_32939029)], comparison_32939029))
+colnames(comparison_32939029) <- c("event_date", "Actual", "Prediction") 
+plotting(comparison_32939029,product_name = "Şarjlı Diş Fırçası", col = "",num =2)
+```
+
+It is not a surprise for us to see that much WMAPE score, since our predictions are way off than the actual data. This also indicates that our model has functioned insufficiently and there's much work to be done in future to improve this model.
+
+```{r}
+accu(comparison_32939029$Actual, comparison_32939029$Prediction)
+```
+
+## 7) Mont
+
+### Task 1
+
+The data is imported and necessary manipulations are made.  
+Let us have a look at the first 6 rows of each column.
+
+```{r, warning=FALSE, message=FALSE}
+data_48740784 <- data_manip("48740784", normal = F)
+head(data_48740784)
+```
+
+The first step will be to apply daily decomposition. From the project report, it is obvious that the sales variance does not rise with time. As a result, the decomposition method should be additive.
+
+```{r}
+decomp_48740784 <- decomp(data_48740784, 7)
+```
+
+The results from unit root test belongs to the random component of decomposition. Since its significance value is lower than the significance levels, the null hypothesis is failed to be rejected. The null hypothesis is that the data is stationary. So, the data is stationary. 
+
+As you can observe, for some seasons such as Summer of 2020, January of 2021 or Spring of 2021 there are not any sales at all, which leads us there may be a kind of a seasonality or there may be a different effects such as price. To understand what affects our daily sales, it is necessary that to control over correlations between different properties.  
+
+Because the data does not cover sales from the previous two years, weekly and monthly decompositions are not possible. There are not enough time periods for different kind of composition. As a result, an error message is generated by this type of decomposition.
+
+Now, the autocorrelation and partial autocorrelation graphs will be analyzed.
+
+```{r}
+acf(decomp_48740784, na.action = na.pass)
+pacf(decomp_48740784, na.action = na.pass)
+```
+
+In this graph, you can observe that lag-1 has a substantial autocorrelation and exponential decline. After lag-1, the partial autocorrelation graph shows a sharp reduction, while the following lags exhibit generally negative autocorrelation. In addition, the ACF plot resembles a sinus function. These graphics do not show seasonal autocorrelation. 
+
+### Task 2
+
+According to the plots above, ARIMA (1,0,0) can be applied as a baseline model. 
+
+```{r}
+model1 <- arima(decomp_48740784, order = c(1,0,0))
+summary(model1)
+```
+
+Since lag-4 variable has a significant partial autocorrelation after the biggest one in the lag-3, ARIMA (0,0,4) can also be tried.
+
+```{r}
+model2 <- arima(decomp_48740784, order = c(0,0,4))
+summary(model2)
+```
+
+Lastly, combining these two approaches may lead us to the better one. The ARIMA model (1,0,4) is below.
+
+```{r}
+model3 <- arima(decomp_48740784, order = c(1,0,4))
+summary(model3)
+```
+
+
+The lowest AIC value belongs to ARIMA (1,0,4) model. Therefore, this model can be chosen as the last model. 
+
+
+### Task 3
+
+Most variables in the project are not independent (basket count, favored count, category sold). As a result, utilizing numerous regressors in the model isn't recommended. There will be a multicollinearity issue.
+
+Now, the correlation matrix will be observed. 
+
+```{r}
+cor_plot(data_48740784, "Mont")
+```
+
+The number of sales have high correlation with basket_count, and visit_count. Since the features are scaled differently, they should be normalized.
+
+### Task 4
+
+```{r, warning=FALSE, message=FALSE}
+decomp_48740784_norm <- data_manip("48740784", normal = T)
+model4 <- arima(decomp_48740784, order = c(1,0,4), xreg = cbind(decomp_48740784_norm$basket_count))
+summary(model4)
+```
+
+It can be said that AIC value decreased, which is preferred. 
+
+Now, visit_count will be added, instead of basket_count
+
+```{r}
+model5 <- arima(decomp_48740784, order = c(1,0,4), xreg = cbind(decomp_48740784_norm$visit_count))
+summary(model5)
+```
+
+The model with basket_count has smaller AIC value, compared to the model with visit_count. Therefore, it will be chosen as final model. 
+
+
+Now, forecasts for the last week will be made and plotted to better analysis.
+
+```{r}
+comparison_48740784 <- forecast_func(data = data_48740784$sold_count, ar_order = c(1,0,4), reg_matrix = cbind(data_48740784$visit_count))
+comparison_48740784 <- data.table(cbind(data_48740784$event_date[(nrow(data_48740784)-6):nrow(data_48740784)], comparison_48740784))
+colnames(comparison_48740784) <- c("event_date", "Actual", "Prediction")
+plotting(comparison_48740784,product_name = "Mont", col = "",num =2)
+```
+
+For a prediction model that predicts different numbers between 0 and 6, accuracy of our model seems fair enough, which leads us to calculations of the other products.
+
+## 8) Bikini Üstü (1)
+
+### Task 1
+
+The data is imported and the appropriate adjustments are done.  
+Let's examine the top six rows of each column.
+
+```{r, warning=FALSE, message=FALSE}
+data_73318567 <- data_manip("73318567", normal = F)
+head(data_48740784)
+```
+
+The first stage will be to decompose on a daily basis. It is clear from the project report that the sales variation does not increase over time. As a result, the method of decomposition must be additive.
+
+```{r}
+decomp_73318567 <- decomp(data_73318567, 7)
+```
+
+The random component of decomposition includes the results of the unit root test. The null hypothesis is not rejected since its significance value is less than the significance thresholds. The data is stationary, according to the null hypothesis. 
+
+As you can observe from the plot, the sales over time are very different from each other. There are not any sales nearly until February 2021. The reason behind that could be the bikini top is not for the sale in that time frame. After February 2021 the sales are increased and decreased instantly, and again there are no sales. The reason behind that also could be the same.
+Later, when the summer hits, the sales increased very quick which may be occurred because of the change in price or increased stocks in our product. 
+Weekly and monthly decomposition cannot be applied because the data do not include sales happened in 2 years. There are less than two periods. Therefore, this type of decomposition brings an error message.
+
+The graphs of autocorrelation and partial autocorrelation will now be examined.
+
+```{r}
+acf(decomp_73318567, na.action = na.pass)
+pacf(decomp_73318567, na.action = na.pass)
+```
+
+In this graph, you can observe that lag-1 has a substantial autocorrelation and exponential decline. After lag-1, the partial autocorrelation graph shows a sharp decline, while the following lags have negative autocorrelation. These graphics do not show seasonal autocorrelation.
+
+### Task 2
+
+According to the plots above, ARIMA (1,0,0) can be applied as a baseline model. 
+
+```{r}
+model1 <- arima(decomp_73318567, order = c(1,0,0))
+summary(model1)
+```
+
+Since lag-5 variable has a significant autocorrelation, ARIMA (5,0,0) can also be tried.
+
+```{r}
+model2 <- arima(decomp_73318567, order = c(5,0,0))
+summary(model2)
+```
+
+Lastly, lag-5 variable has also significant autocorrelation, and it is the last variable being significant. The model is below.
+
+```{r}
+model3 <- arima(decomp_73318567, order = c(0,0,5))
+summary(model3)
+```
+
+Lastly, combining these two approaches may lead us to the better one. The ARIMA model (5,0,5) is below.
+
+```{r}
+model4 <- arima(decomp_73318567, order = c(5,0,5))
+summary(model4)
+```
+
+
+The lowest AIC value belongs to ARIMA (5,0,5) model.  Therefore, this model can be chosen as the last model. 
+
+
+### Task 3
+
+Most variables in the project are not independent (basket count, favored count, category sold). As a result, utilizing numerous regressors in the model isn't recommended because will be a multicollinearity issue.
+
+Now, the correlation matrix will be observed. 
+
+```{r}
+cor_plot(data_73318567, "Bikini Üstü")
+```
+
+The number of sales have high correlation with basket_count, and visit_count. Since the features are scaled differently, they should be normalized.
+
+
+### Task 4
+
+```{r, warning=FALSE, message=FALSE}
+decomp_73318567_norm <- data_manip("48740784", normal = T)
+model4 <- arima(decomp_73318567, order = c(5,0,5), xreg = cbind(decomp_73318567_norm$basket_count))
+summary(model4)
+```
+
+It can be said that AIC value is approximately same.
+
+Now, visit_count will be added, instead of basket_count
+
+```{r}
+model5 <- arima(decomp_73318567, order = c(5,0,5), xreg = cbind(decomp_73318567_norm$visit_count))
+summary(model5)
+```
+
+It has the same AIC value, compared to the model with basket_count Therefore, selecting one of them is enough. 
+
+Now, lastly, category_visits will be used as a regressor.
+
+```{r}
+model6 <- arima(decomp_73318567, order = c(5,0,5), xreg = cbind(decomp_73318567_norm$category_visits))
+summary(model6)
+```
+
+This model has a lower AIC value compared to the previous models. Therefore, model with category_visits will be used as a final model.
+
+Now, forecasts for the last week will be made.
+
+```{r}
+comparison_73318567 <- forecast_func(data = data_73318567$sold_count, ar_order = c(5,0,5), reg_matrix = cbind(data_73318567$category_visits))
+comparison_73318567 <- data.table(cbind(data_73318567$event_date[(nrow(data_73318567)-6):nrow(data_73318567)], comparison_73318567))
+colnames(comparison_73318567) <- c("event_date", "Actual", "Prediction")
+plotting(comparison_73318567,product_name = "Bikini Üstü(1)", col = "",num =2)
+```
+
+The forecasts seems not good enough but it is valid for a prediction model that uses only AR and MA approaches. To provide more improvement for the model, it would be wise that using seasonalities because it is a seasonal product or using SARIMA or GAM models. 
+
+
+
+## 9) Tayt   (id=31515569)
+
+### Task 1
+
+The data is imported and necessary manipulations are made.  
+Let us have a look at the first 6 rows of each column.
+
+```{r, warning=FALSE, message=FALSE}
+data_31515569 <- data_manip("31515569", normal = F)
+head(data_48740784)
+```
+
+The first step will be a daily decomposition. The project report clearly shows that the sales variety does not rise over time. As a result, the breakdown process must be additive.
+
+
+```{r}
+decomp_31515569 <- decomp(data_31515569, 7)
+```
+
+The random component of decomposition includes the results of the unit root test. The null hypothesis is not rejected since its significance value is less than the significance thresholds. The data is stationary, according to the null hypothesis. As a result, the data is static and stationary.
+
+From the plot it can be observed that there are much variation in the series. The sales follows a general trend over time. However there are various instant increases in the sales like the one in the “Black Friday”. The reason behind that could be a decrease in price. The following calculations will helps us to reach whether this assumption is correct. In order to become a good prediction model, the model needs some regressors to predict next sales.
+
+Weekly and monthly decompositions are not possible because the data does not include sales from the prior two years. There are insufficient time periods for various types of composing. As a result, this type of decomposition generates an error message.
+
+Now, the autocorrelation and partial autocorrelation graphs will be analyzed.
+
+```{r}
+acf(decomp_31515569, na.action = na.pass)
+pacf(decomp_31515569, na.action = na.pass)
+```
+
+You can see that lag-1 has a lot of autocorrelation and an exponential drop in this graph. The partial autocorrelation graph reveals a rapid decline after lag-1, with generally negative autocorrelation for the succeeding lags. Furthermore, the ACF plot looks like a sinus function. Seasonal autocorrelation is not seen in these graphs.
+
+
+### Task 2
+
+According to the plots above, ARIMA (1,0,0) can be applied as a baseline model. 
+
+```{r}
+model1 <- arima(decomp_31515569, order = c(1,0,0))
+summary(model1)
+```
+
+Since lag-4 variable has a significant autocorrelation, ARIMA (4,0,0) can also be tried.
+
+```{r}
+model2 <- arima(decomp_31515569, order = c(4,0,0))
+summary(model2)
+```
+
+Lastly, lag-4 variable has also significant partial autocorrelation. The model is below.
+
+```{r}
+model3 <- arima(decomp_31515569, order = c(0,0,4))
+summary(model3)
+```
+
+Lastly, combining these two approaches may lead us to the better one. The ARIMA model (4,0,4) is below.
+
+```{r}
+model4 <- arima(decomp_73318567, order = c(4,0,4))
+summary(model4)
+```
+
+As you can observe, it is clear that AIC becomes far better when these two approaches are combined. It is dropped to 2875 from 6000.  
+Hence, the last model (4,0,4) is chosen to be improved with further analysis such as adding new regressors. 
+
+### Task 3
+
+The majority of the project's variables are not independent (basket count, favored count, category sold). As a result, including several regressors in the model is not suggested due to the risk of multicollinearity.
+
+Now, the correlation matrix will be observed. 
+
+```{r}
+cor_plot(data_31515569, "Tayt")
+```
+
+The number of sales have high correlation with category_sold, basket_count, and category_visit. Since the features are scaled differently, they should be normalized.
+
+### Task 4
+
+```{r, warning=FALSE, message=FALSE}
+decomp_31515569_norm <- data_manip("48740784", normal = T)
+model4 <- arima(decomp_31515569, order = c(4,0,4), xreg = cbind(decomp_31515569_norm$category_sold))
+summary(model4)
+```
+
+It can be said that AIC value increases, which is not preferred. 
+
+Now, basket_count will be added, instead of category_sold.
+
+```{r, warning=FALSE, message=FALSE}
+model5 <- arima(decomp_31515569, order = c(4,0,4), xreg = cbind(decomp_31515569_norm$basket_count))
+summary(model5)
+```
+
+It has higher AIC value, compared to the model with category_sold. Therefore, it will not be chosen as final model. 
+
+Now, lastly, category_visits will be used as a regressor.
+
+```{r, warning=FALSE, message=FALSE}
+model6 <- arima(decomp_31515569, order = c(4,0,4), xreg = cbind(decomp_31515569_norm$category_visits))
+summary(model6)
+```
+
+This model has a lower AIC value compared to the previous model, but the lowest AIC value belongs to the first model, with the number of sold products in the same category.  
+However, the model without any regressots has the best AIC value so it is preffered over other three. 
+If there is a obligation as usage of any, model with category_sold could be used as a final model.  
+
+Now, forecasts for the last week will be made.
+
+```{r, warning=FALSE, message=FALSE}
+comparison_31515569 <- forecast_func(data = data_31515569$sold_count, ar_order = c(4,0,4), reg_matrix = cbind(data_31515569$category_sold))
+comparison_31515569 <- data.table(cbind(data_31515569$event_date[(nrow(data_31515569)-6):nrow(data_31515569)], comparison_31515569))
+colnames(comparison_31515569) <- c("event_date", "Actual", "Prediction")
+plotting(comparison_31515569,product_name = "Tayt", col = "",num =2)
+```
+
+The model are not very strong. However, usage of only one regressor and ARIMA model is really restrictive. As a result, the model is suitable. 
